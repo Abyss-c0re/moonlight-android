@@ -47,6 +47,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.preference.PreferenceManager;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
@@ -197,15 +202,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private int modifierFlags = 0;
     private boolean grabbedInput = true;
     private boolean cursorVisible = false;
-    private float clientNormX = -1;
-    private float clientNormY = -1;
-    private boolean justRegrabbed = false;  // skip edge release check on first captured event after re-grab (capture start deltas can be misleading)
+    private SharedPreferences.OnSharedPreferenceChangeListener preferenceListener;
     private boolean waitingForAllModifiersUp = false;
     private int specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
     private StreamView streamView;
     private View mouseBoundsView;
-    private float lastMouseBoundsW;
-    private float lastMouseBoundsH;
 
     private long lastAbsTouchUpTime = 0;
     private long lastAbsTouchDownTime = 0;
@@ -296,6 +297,29 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         prefConfig = PreferenceConfiguration.readPreferences(this);
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
 
+        // Listen for changes to the Quest-specific input options so that
+        // enabling/disabling them takes effect immediately for the current stream
+        // (instead of requiring a full stream restart).
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        preferenceListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
+            @Override
+            public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+                if (key != null && (key.startsWith("checkbox_mouse_") ||
+                                    key.equals("checkbox_controller_pointer_as_mouse"))) {
+                    prefConfig = PreferenceConfiguration.readPreferences(Game.this);
+
+                    if (key.equals("checkbox_mouse_absolute_passthrough") && inputCaptureProvider != null) {
+                        if (prefConfig.mouseAbsolutePassthrough) {
+                            inputCaptureProvider.disableCapture();
+                        } else if (grabbedInput) {
+                            inputCaptureProvider.enableCapture();
+                        }
+                    }
+                }
+            }
+        };
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener);
+
         // Enter landscape unless we're on a square screen
         setPreferredOrientationForCurrentDisplay();
 
@@ -330,31 +354,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         // user has open (StreamView may be smaller due to aspect ratio letterboxing
         // and gravity centering).
         mouseBoundsView = (backgroundTouchView != null) ? backgroundTouchView : streamView;
-        lastMouseBoundsW = 0;
-        lastMouseBoundsH = 0;
 
         // Listen for dynamic window resizes (Quest freeform / volumetric windows).
         // When the outer window size changes, we proportionally scale the virtual
         // client cursor instead of always snapping to center. This keeps "near edge"
         // state correct as the user drags the window sides.
         if (mouseBoundsView != null) {
-            mouseBoundsView.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-                @Override
-                public void onLayoutChange(View v, int left, int top, int right, int bottom,
-                                           int oldLeft, int oldTop, int oldRight, int oldBottom) {
-                    float newW = right - left;
-                    float newH = bottom - top;
-                    LimeLog.info("MouseEdge: LayoutChange on " + v.getClass().getSimpleName() +
-                            " old=" + (oldRight-oldLeft) + "x" + (oldBottom-oldTop) +
-                            " new=" + newW + "x" + newH +
-                            " currentNorm=(" + String.format("%.4f", clientNormX) + "," + String.format("%.4f", clientNormY) + ")");
-                    // For normalized (0-1) virtual position we don't need to rescale on resize
-                    // — the next delta will be divided by the new live size, which is correct.
-                    // We just keep the last sizes for any other bookkeeping.
-                    lastMouseBoundsW = newW;
-                    lastMouseBoundsH = newH;
-                }
-            });
+            // (Layout listener kept for potential future use with dynamic window sizes;
+            // the old edge-release virtual cursor tracking has been removed.)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1171,6 +1178,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // Destroy the capture provider
         inputCaptureProvider.destroy();
+
+        if (preferenceListener != null) {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener);
+        }
     }
 
     @Override
@@ -1262,8 +1274,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private void setInputGrabState(boolean grab) {
         // Grab/ungrab the mouse cursor
+        // Read the passthrough pref live (directly from disk for cross-process visibility)
+        // so toggling it in settings immediately affects whether we enable capture or not.
+        boolean passthrough = getQuestInputPref(
+            PreferenceConfiguration.MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING,
+            PreferenceConfiguration.DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH);
+
         if (grab) {
-            if (!prefConfig.mouseAbsolutePassthrough) {
+            if (!passthrough) {
                 inputCaptureProvider.enableCapture();
 
                 // Enabling capture may hide the cursor again, so
@@ -1282,45 +1300,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // captured mode. In passthrough we don't use it.
         }
         else {
-            // When releasing (manually or via edge), try to place the local system
-            // pointer near where our virtual cursor was (mapped to the full app window),
-            // instead of letting Android snap it to the center of the captured view.
-            float releaseX = -1;
-            float releaseY = -1;
-            View posView = (mouseBoundsView != null) ? mouseBoundsView : streamView;
-            if (clientNormX >= 0 && clientNormY >= 0) {
-                float contentW = streamView.getWidth();
-                float contentH = streamView.getHeight();
-                float contentLeft = streamView.getX();
-                float contentTop = streamView.getY();
-                float releaseContentX = clientNormX * contentW;
-                float releaseContentY = clientNormY * contentH;
-                releaseX = contentLeft + releaseContentX;
-                releaseY = contentTop + releaseContentY;
-                releaseX = Math.max(0, Math.min(posView.getWidth(), releaseX));
-                releaseY = Math.max(0, Math.min(posView.getHeight(), releaseY));
-            }
-
-            clientNormX = clientNormY = -1;
-            justRegrabbed = false;
-            LimeLog.info("MouseEdge: reset virtual cursor on ungrab (will re-init to center on next capture)");
             inputCaptureProvider.disableCapture();
-
-            // Prime *after* release (posted to next frame) for better chance that the visible
-            // Quest cursor adopts the position without causing rapid show/hide flicker during
-            // the capture state transition.
-            if (releaseX >= 0) {
-                final float rx = releaseX;
-                final float ry = releaseY;
-                final View pv = posView;
-                new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
-                    @Override
-                    public void run() {
-                        LimeLog.info("MouseEdge: priming pointer at (" + String.format("%.1f", rx) + "," + String.format("%.1f", ry) + ") on " + pv.getClass().getSimpleName());
-                        primeSystemPointerPosition(pv, rx, ry);
-                    }
-                });
-            }
         }
 
         // Grab/ungrab system keyboard shortcuts
@@ -1335,6 +1315,41 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             setInputGrabState(!grabbedInput);
         }
     };
+
+    /**
+     * Reads the Quest-specific passthrough/controller-pointer toggles directly from
+     * the on-disk shared_prefs XML. This ensures that changes made in the main
+     * process (StreamSettings / UI) are visible inside a Game running in a
+     * separate :streamN process, and that disabling the options actually takes
+     * effect without requiring a stream restart. The normal SP cache in this
+     * process would otherwise retain the value from process start time.
+     */
+    private boolean getQuestInputPref(String key, boolean defaultValue) {
+        try {
+            File prefsFile = new File(getApplicationInfo().dataDir + "/shared_prefs/" + getPackageName() + "_preferences.xml");
+            if (prefsFile.exists()) {
+                BufferedReader reader = new BufferedReader(new FileReader(prefsFile));
+                String line;
+                String nameAttr = "name=\"" + key + "\"";
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains(nameAttr)) {
+                        if (line.contains("value=\"true\"")) {
+                            reader.close();
+                            return true;
+                        }
+                        if (line.contains("value=\"false\"")) {
+                            reader.close();
+                            return false;
+                        }
+                    }
+                }
+                reader.close();
+            }
+        } catch (Exception ignored) {
+            // Fall back to (possibly stale in-process) value below.
+        }
+        return PreferenceManager.getDefaultSharedPreferences(this).getBoolean(key, defaultValue);
+    }
 
     // Returns true if the key stroke was consumed
     private boolean handleSpecialKeys(int androidKeyCode, boolean down) {
@@ -1958,45 +1973,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         ev.recycle();
     }
 
-    private boolean isMouseClickToRegrab(MotionEvent event) {
-        if (event == null) return false;
-
-        int source = event.getSource();
-        if ((source & InputDevice.SOURCE_CLASS_POINTER) == 0) {
-            return false;
-        }
-
-        int action = event.getActionMasked();
-        boolean primaryPressed = false;
-
-        // Common cases for mouse button down
-        if (action == MotionEvent.ACTION_DOWN ||
-            action == MotionEvent.ACTION_BUTTON_PRESS) {
-            if ((event.getButtonState() & MotionEvent.BUTTON_PRIMARY) != 0) {
-                primaryPressed = true;
-            }
-        }
-
-        // Also catch button state transitions (some input devices report it this way)
-        // We can look at whether primary is now down compared to last known, but for
-        // the re-grab case a simple current state check on down/press is usually sufficient.
-
-        if (primaryPressed) {
-            // Prefer real mice / stylus over finger touches
-            int toolType = event.getToolType(0);
-            if (toolType == MotionEvent.TOOL_TYPE_MOUSE ||
-                toolType == MotionEvent.TOOL_TYPE_STYLUS ||
-                toolType == MotionEvent.TOOL_TYPE_ERASER ||
-                source == InputDevice.SOURCE_MOUSE ||
-                source == InputDevice.SOURCE_MOUSE_RELATIVE) {
-                LimeLog.info("MouseEdge: isMouseClickToRegrab true for source=0x" + Integer.toHexString(source) + " tool=" + toolType);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     // Returns true if the event was consumed
     // NB: View is only present if called from a view callback
     private boolean handleMotionEvent(View view, MotionEvent event) {
@@ -2007,11 +1983,39 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             return true;
         }
 
+        // Read the Quest input options live on every input event so that toggling
+        // them in settings (even mid-stream) immediately affects behavior, regardless
+        // of process boundaries or snapshot timing.
+        // We read directly from the prefs XML (via helper) so that toggles performed
+        // in the main/UI process are visible here even when Game runs in :streamN.
+        boolean passthrough = getQuestInputPref(
+            PreferenceConfiguration.MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING,
+            PreferenceConfiguration.DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH);
+        boolean controllerPtr = getQuestInputPref(
+            PreferenceConfiguration.CONTROLLER_POINTER_AS_MOUSE_PREF_STRING,
+            PreferenceConfiguration.DEFAULT_CONTROLLER_POINTER_AS_MOUSE);
+
+        // Force the capture state to match the current passthrough pref on every input event.
+        // This ensures that toggling the option (even from another process) takes effect
+        // on the next mouse/controller event without waiting for setInputGrabState or listener.
+        if (inputCaptureProvider != null) {
+            boolean currentlyCapturing = inputCaptureProvider.isCapturingActive();
+            if (passthrough && currentlyCapturing) {
+                inputCaptureProvider.disableCapture();
+            } else if (!passthrough && !currentlyCapturing && grabbedInput) {
+                inputCaptureProvider.enableCapture();
+            }
+        }
+
         int eventSource = event.getSource();
 
-        boolean isControllerPointer = prefConfig.controllerPointerAsMouse &&
+        // Identify events that come from controller laser/pointer devices (e.g. Quest Touch).
+        // The controllerPtr (live setting) decides whether we treat them specially as mouse.
+        boolean controllerPointerDevice =
                 (eventSource & InputDevice.SOURCE_CLASS_POINTER) != 0 &&
                 (inputCaptureProvider == null || !inputCaptureProvider.eventHasRelativeMouseAxes(event));
+
+        boolean isControllerPointer = controllerPtr && controllerPointerDevice;
 
         // Oculus/Meta Quest Touch controller pointer as mouse (laser / virtual cursor).
         // Feed absolute pointer position from these controller devices to the host mouse.
@@ -2036,31 +2040,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         // automatically re-acquire pointer capture. This makes it easy to jump
         // back into the remote desktop on Quest multi-window setups.
         if (!grabbedInput) {
-            if (isMouseClickToRegrab(event)) {
-                cursorVisible = false;
-                setInputGrabState(true);
-                // Seed the escape model from the click position (adjusted for view offset).
-                // The click itself positions the remote cursor. With the warp suppression on the
-                // first captured event, this keeps the model and remote in sync at the click spot
-                // (no "another half" jump). If clicked near edge, only small additional push needed
-                // to release.
-                float clickX = event.getX();
-                float clickY = event.getY();
-                if (view != null && view != streamView && streamView != null) {
-                    clickX -= streamView.getX();
-                    clickY -= streamView.getY();
-                }
-                float svW = streamView.getWidth();
-                float svH = streamView.getHeight();
-                if (svW > 0 && svH > 0 && clickX >= 0 && clickX <= svW && clickY >= 0 && clickY <= svH) {
-                    clientNormX = clickX / svW;
-                    clientNormY = clickY / svH;
-                } else {
-                    clientNormX = clientNormY = 0.5f;
-                }
-                justRegrabbed = true;
-                // Fall through so the click itself is sent to the host as normal
-            } else if (!isControllerPointer && !prefConfig.mouseAbsolutePassthrough) {
+            if (!isControllerPointer && !passthrough) {
                 // Regular non-grabbed USB mouse events: let the system handle them
                 // (so you can click other Quest windows).
                 // Controller pointer events and mouse passthrough must continue so
@@ -2095,7 +2075,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                                     event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                                     event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER)) ||
                     eventSource == 12290 || // 12290 = Samsung DeX mode desktop mouse
-                    isControllerPointer) // controller laser pointer events should be treated as mouse for position + clicks
+                    isControllerPointer || // controller laser pointer events should be treated as mouse for position + clicks
+                    passthrough) // in passthrough mode, treat pointer events as absolute mouse to forward without capture
             {
                 int buttonState = event.getButtonState();
                 int changedButtons = buttonState ^ lastButtonState;
@@ -2124,7 +2105,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 // - controller pointer as mouse: process buttons even after USB release
                 // - absolute passthrough: always forward absolute mouse events/clicks
                 //   without capture, so local cursor stays visible for other windows.
-                if (!inputCaptureProvider.isCapturingActive() && !isControllerPointer && !prefConfig.mouseAbsolutePassthrough) {
+                if (!inputCaptureProvider.isCapturingActive() && !isControllerPointer && !passthrough) {
                     // We return true here because otherwise the events may end up causing
                     // Android to synthesize d-pad events.
                     return true;
@@ -2137,111 +2118,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     // Get raw float deltas (for edge detection) then cast for the wire protocol
                     float deltaX = inputCaptureProvider.getRelativeAxisX(event);
                     float deltaY = inputCaptureProvider.getRelativeAxisY(event);
-
-                    // Edge-release logic: if the user pushes the (captured) mouse past the bounds
-                    // of the stream view, release pointer capture. This lets you move the pointer
-                    // out of the Moonlight window to interact with other Quest multi-windows or
-                    // the system UI.
-                    if (prefConfig.mouseEdgeRelease && grabbedInput && inputCaptureProvider.isCapturingActive()) {
-                        // Use streamView for the virtual bounds. This is the view that has pointer
-                        // capture attached and represents the actual video/content area the mouse
-                        // is "trapped" in. Its size automatically updates when the Quest window is
-                        // resized (the onMeasure adapts to the new available size), so the escape
-                        // distance tracks the dynamic window sides. Using the backgroundTouchView
-                        // (full task size) was causing scale mismatch with the deltas from capture.
-                        View boundsView = streamView;
-                        float viewW = boundsView.getWidth();
-                        float viewH = boundsView.getHeight();
-
-                        String boundsName = (boundsView != null ? boundsView.getClass().getSimpleName() : "null");
-
-                        // Initialize normalized position (0.0-1.0) on first use or invalid size.
-                        // Center because Android parks the captured pointer at the view center.
-                        if (clientNormX < 0 || clientNormY < 0 || viewW <= 0 || viewH <= 0) {
-                            LimeLog.info("MouseEdge: init center norm (was uninit or bad size=" + viewW + "x" + viewH + ") bounds=" + boundsName);
-                            clientNormX = 0.5f;
-                            clientNormY = 0.5f;
-                        }
-
-                        if (justRegrabbed) {
-                            justRegrabbed = false;
-                            // On re-grab the click already set the remote cursor (and we seeded the
-                            // virtual model) to the exact position of the visible Android cursor.
-                            // The first captured relative event after re-acquiring capture often
-                            // contains an artificial warp/reconciliation delta from the system.
-                            // To avoid the desync ("moved to another half") and early release,
-                            // always suppress the delta for this first event (zero it for both
-                            // the escape model update and the delta sent to host).
-                            // The model stays exactly at the click position ("the mouse is already
-                            // where it's supposed to be"). Real movement after that works normally.
-                            LimeLog.info("MouseEdge: suppressing first post-regrab delta (warp) raw=(" + String.format("%.1f", deltaX) + "," + String.format("%.1f", deltaY) + ")");
-                            deltaX = 0;
-                            deltaY = 0;
-                        }
-
-                        float normDx = (viewW > 0f) ? (deltaX / viewW) : 0f;
-                        float normDy = (viewH > 0f) ? (deltaY / viewH) : 0f;
-
-                        float curNx = clientNormX;
-                        float curNy = clientNormY;
-                        float nextNx = curNx + normDx;
-                        float nextNy = curNy + normDy;
-
-                        clientNormX = Math.max(0f, Math.min(1f, nextNx));
-                        clientNormY = Math.max(0f, Math.min(1f, nextNy));
-
-                        if (justRegrabbed) {
-                            justRegrabbed = false;
-                            // Skip the pushingOut/release decision on the very first captured relative
-                            // event after a re-grab click. The initial delta(s) after capture can be
-                            // "snap" or reset values that would falsely trigger early release.
-                        } else {
-                            // Strict "at the boundary and still pushing further outward".
-                            // Combined with the minPush guard below, this stops:
-                            // - releases from the middle of the screen (even with large deltas)
-                            // - random releases from tiny noise/system events when mouse is physically still
-                            // - releases that don't correspond to actually reaching the visual edge
-                            boolean pushingOut =
-                                (nextNx < 0f && curNx <= 0f && normDx < 0) ||
-                                (nextNx > 1f && curNx >= 1f && normDx > 0) ||
-                                (nextNy < 0f && curNy <= 0f && normDy < 0) ||
-                                (nextNy > 1f && curNy >= 1f && normDy > 0);
-
-                            float thisPush = Math.max(Math.abs(normDx), Math.abs(normDy));
-
-                            float streamW = streamView.getWidth();
-                            float streamH = streamView.getHeight();
-                            InputDevice relDev = event.getDevice();
-                            String devStr = (relDev != null ? relDev.getName() + "(id=" + relDev.getId() + ",src=0x" + Integer.toHexString(relDev.getSources()) + ")" : "null");
-                            LimeLog.info("MouseEdge: bounds=" + boundsName + " " + viewW + "x" + viewH +
-                                    " (streamView=" + streamW + "x" + streamH + ")" +
-                                    " dev=" + devStr +
-                                    " norm=(" + String.format("%.4f", curNx) + "," + String.format("%.4f", curNy) + ")" +
-                                    " rawD=(" + String.format("%.1f", deltaX) + "," + String.format("%.1f", deltaY) + ")" +
-                                    " normD=(" + String.format("%.4f", normDx) + "," + String.format("%.4f", normDy) + ")" +
-                                    " next=(" + String.format("%.4f", nextNx) + "," + String.format("%.4f", nextNy) + ")" +
-                                    " pushingOut=" + pushingOut + " thisPush=" + String.format("%.4f", thisPush));
-
-                            if (pushingOut && thisPush >= 0.005f) {
-                                LimeLog.info("*** MouseEdge RELEASE *** at norm=(" + String.format("%.4f", clientNormX) + "," + String.format("%.4f", clientNormY) + ")");
-
-                                // Sync the remote desktop cursor to the edge according to our virtual model
-                                // before we release capture. This helps keep the "hidden" local logical position
-                                // in sync with the visible remote cursor.
-                                conn.sendMousePosition(
-                                    (short)(clientNormX * streamView.getWidth()),
-                                    (short)(clientNormY * streamView.getHeight()),
-                                    (short)streamView.getWidth(),
-                                    (short)streamView.getHeight()
-                                );
-
-                                setInputGrabState(false);
-                                cursorVisible = true;
-                                // showCursor() is handled inside setInputGrabState(false) via disableCapture;
-                                // avoid extra call here to reduce show/hide flicker during release.
-                            }
-                        }
-                    }
 
                     short sDeltaX = (short) deltaX;
                     short sDeltaY = (short) deltaY;

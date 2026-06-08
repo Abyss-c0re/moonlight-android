@@ -68,9 +68,8 @@ public class PreferenceConfiguration {
     private static final String GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING = "checkbox_gamepad_touchpad_as_mouse";
     private static final String GAMEPAD_MOTION_SENSORS_PREF_STRING = "checkbox_gamepad_motion_sensors";
     private static final String GAMEPAD_MOTION_FALLBACK_PREF_STRING = "checkbox_gamepad_motion_fallback";
-    private static final String CONTROLLER_POINTER_AS_MOUSE_PREF_STRING = "checkbox_controller_pointer_as_mouse";
-    private static final String MOUSE_EDGE_RELEASE_PREF_STRING = "checkbox_mouse_edge_release";
-    private static final String MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING = "checkbox_mouse_absolute_passthrough";
+    public static final String CONTROLLER_POINTER_AS_MOUSE_PREF_STRING = "checkbox_controller_pointer_as_mouse";
+    public static final String MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING = "checkbox_mouse_absolute_passthrough";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
     static final String DEFAULT_FPS = "60";
@@ -111,9 +110,8 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_GAMEPAD_TOUCHPAD_AS_MOUSE = false;
     private static final boolean DEFAULT_GAMEPAD_MOTION_SENSORS = true;
     private static final boolean DEFAULT_GAMEPAD_MOTION_FALLBACK = false;
-    private static final boolean DEFAULT_CONTROLLER_POINTER_AS_MOUSE = false;
-    private static final boolean DEFAULT_MOUSE_EDGE_RELEASE = true;
-    private static final boolean DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH = false;
+    public static final boolean DEFAULT_CONTROLLER_POINTER_AS_MOUSE = false;
+    public static final boolean DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH = false;
 
     public static final int FRAME_PACING_MIN_LATENCY = 0;
     public static final int FRAME_PACING_BALANCED = 1;
@@ -162,7 +160,6 @@ public class PreferenceConfiguration {
     public boolean gamepadTouchpadAsMouse;
     public boolean gamepadMotionSensorsFallbackToDevice;
     public boolean controllerPointerAsMouse;
-    public boolean mouseEdgeRelease;
     public boolean mouseAbsolutePassthrough;
 
     public static boolean isNativeResolution(int width, int height) {
@@ -611,7 +608,6 @@ public class PreferenceConfiguration {
         config.gamepadMotionSensors = prefs.getBoolean(GAMEPAD_MOTION_SENSORS_PREF_STRING, DEFAULT_GAMEPAD_MOTION_SENSORS);
         config.gamepadMotionSensorsFallbackToDevice = prefs.getBoolean(GAMEPAD_MOTION_FALLBACK_PREF_STRING, DEFAULT_GAMEPAD_MOTION_FALLBACK);
         config.controllerPointerAsMouse = prefs.getBoolean(CONTROLLER_POINTER_AS_MOUSE_PREF_STRING, DEFAULT_CONTROLLER_POINTER_AS_MOUSE);
-        config.mouseEdgeRelease = prefs.getBoolean(MOUSE_EDGE_RELEASE_PREF_STRING, DEFAULT_MOUSE_EDGE_RELEASE);
         config.mouseAbsolutePassthrough = prefs.getBoolean(MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING, DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH);
 
         return config;

@@ -145,11 +145,6 @@
             android:summary="@string/summary_checkbox_absolute_mouse_mode"
             android:defaultValue="false" />
         <CheckBoxPreference
-            android:key="checkbox_mouse_edge_release"
-            android:title="@string/title_checkbox_mouse_edge_release"
-            android:summary="@string/summary_checkbox_mouse_edge_release"
-            android:defaultValue="true" />
-        <CheckBoxPreference
             android:key="checkbox_mouse_absolute_passthrough"
             android:title="@string/title_checkbox_mouse_absolute_passthrough"
             android:summary="@string/summary_checkbox_mouse_absolute_passthrough"

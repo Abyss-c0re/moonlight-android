@@ -40,9 +40,6 @@ Upstream Moonlight Android (and the underlying native `moonlight-common-c` libra
   New optional setting **“Capture controller pointer as mouse”** (in the Input Settings section when configuring a stream; disabled by default).  
   On Meta Quest headsets, this lets the Touch controller’s laser pointer / virtual cursor continuously drive the remote PC’s mouse position. Previously the mouse would only warp to the pointer location when you pressed the trigger. This makes desktop-style interaction and precise pointing much more natural while streaming.
 
-- **Mouse edge release for multi-window use**  
-  New setting **“Release mouse capture at window edge”** (enabled by default). When using a captured USB/Bluetooth mouse, pushing the pointer past the edge of the Moonlight window automatically releases pointer capture. This lets you move the system cursor out of the stream window to interact with other volumetric / freeform windows or Quest system UI without having to use the grab hotkey. The virtual cursor is tracked locally so edge detection works even while relative (captured) input is active.
-
 - **Absolute mouse passthrough (no pointer capture)**  
   New optional setting **“Absolute mouse passthrough (no pointer capture)”** (in the Input Settings section when configuring a stream; disabled by default).  
   When enabled, the local Android cursor stays visible at all times and directly controls the remote PC’s mouse when over the stream window. Mouse movements and clicks are forwarded as absolute input. Pointer capture is never used for the mouse, so there is no grabbing, releasing, edge detection, or virtual cursor tracking. Simply move the cursor out of the Moonlight window to use other Quest windows or the system UI. This is the recommended mode for desktop and productivity use inside Quest’s multi-window / freeform environment.

@@ -206,8 +206,6 @@
     <string name="summary_checkbox_mouse_nav_buttons">Enabling this option may break right clicking on some buggy devices</string>
     <string name="title_checkbox_controller_pointer_as_mouse">Capture controller pointer as mouse</string>
     <string name="summary_checkbox_controller_pointer_as_mouse">For VR headsets like Oculus/Meta Quest, continuously update the mouse cursor from the Touch controller laser pointer. The mouse will follow the pointer position while streaming instead of only jumping when the trigger is pressed.</string>
-    <string name="title_checkbox_mouse_edge_release">Release mouse capture at window edge</string>
-    <string name="summary_checkbox_mouse_edge_release">When using a captured USB or Bluetooth mouse, automatically release pointer capture when the mouse is pushed past the edge of the stream window. This allows you to interact with other Quest windows or the system UI without using a hotkey.</string>
     <string name="title_checkbox_mouse_absolute_passthrough">Absolute mouse passthrough (no pointer capture)</string>
     <string name="summary_checkbox_mouse_absolute_passthrough">The local Android cursor stays visible at all times and directly controls the remote desktop when over the window. Mouse movements and clicks are forwarded as absolute input. No grabbing, releasing, or edge detection needed — simply move the cursor out of the Moonlight window to use other Quest windows or the system UI. Ideal for multi-window desktop use on Quest.</string>
 
