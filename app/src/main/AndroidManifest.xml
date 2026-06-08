@@ -145,20 +145,94 @@
         <activity
             android:name=".Game"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
-            android:noHistory="true"
             android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:enableOnBackInvokedCallback="false"
-            android:launchMode="singleTask"
+            android:launchMode="standard"
             android:excludeFromRecents="true"
             android:theme="@style/StreamTheme"
-            android:preferMinimalPostProcessing="true">
+            android:preferMinimalPostProcessing="true"
+            android:process=":stream">
 
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
 
             <!-- Special metadata for NVIDIA Shield devices to prevent input buffering
                  and most importantly, opt out of mouse acceleration while streaming -->
+            <meta-data
+                android:name="com.nvidia.immediateInput"
+                android:value="true" />
+            <meta-data
+                android:name="com.nvidia.rawCursorInput"
+                android:value="true" />
+        </activity>
+
+        <!-- Additional Game* activities run in completely separate processes.
+             This gives each its own copy of the native moonlight-core library
+             (with its global/static connection state). This is what enables
+             true simultaneous streaming to multiple PCs (the same trick that
+             app cloners use). We support a small number of concurrent slots. -->
+        <activity
+            android:name=".Game2"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:enableOnBackInvokedCallback="false"
+            android:launchMode="standard"
+            android:excludeFromRecents="true"
+            android:theme="@style/StreamTheme"
+            android:preferMinimalPostProcessing="true"
+            android:process=":stream2">
+
+            <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
+            <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+
+            <meta-data
+                android:name="com.nvidia.immediateInput"
+                android:value="true" />
+            <meta-data
+                android:name="com.nvidia.rawCursorInput"
+                android:value="true" />
+        </activity>
+
+        <activity
+            android:name=".Game3"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:enableOnBackInvokedCallback="false"
+            android:launchMode="standard"
+            android:excludeFromRecents="true"
+            android:theme="@style/StreamTheme"
+            android:preferMinimalPostProcessing="true"
+            android:process=":stream3">
+
+            <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
+            <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+
+            <meta-data
+                android:name="com.nvidia.immediateInput"
+                android:value="true" />
+            <meta-data
+                android:name="com.nvidia.rawCursorInput"
+                android:value="true" />
+        </activity>
+
+        <activity
+            android:name=".Game4"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:enableOnBackInvokedCallback="false"
+            android:launchMode="standard"
+            android:excludeFromRecents="true"
+            android:theme="@style/StreamTheme"
+            android:preferMinimalPostProcessing="true"
+            android:process=":stream4">
+
+            <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
+            <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+
             <meta-data
                 android:name="com.nvidia.immediateInput"
                 android:value="true" />
@@ -175,7 +249,8 @@
             android:label="Computer Management Service" />
         <service
             android:name=".binding.input.driver.UsbDriverService"
-            android:label="Usb Driver Service" />
+            android:label="Usb Driver Service"
+            android:process=":stream" />
 
         <activity
             android:name=".HelpActivity"

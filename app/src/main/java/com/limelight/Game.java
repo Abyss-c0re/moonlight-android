@@ -80,11 +80,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.ByteArrayInputStream;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
 
 
@@ -109,6 +113,52 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private static final int THREE_FINGER_TAP_THRESHOLD = 300;
 
+    // Registry of Game instances that are (or were) actively streaming.
+    // Used so that when a new stream is started (e.g. "in new window" to another PC),
+    // we can cleanly terminate previous streaming windows instead of leaving them
+    // with a frozen/dead native connection (which causes freeze + crash on input).
+    private static final List<WeakReference<Game>> activeStreamingGames = new ArrayList<>();
+
+    public static void registerStreamingGame(Game game) {
+        synchronized (activeStreamingGames) {
+            // Remove dead references
+            Iterator<WeakReference<Game>> it = activeStreamingGames.iterator();
+            while (it.hasNext()) {
+                if (it.next().get() == null) {
+                    it.remove();
+                }
+            }
+            activeStreamingGames.add(new WeakReference<>(game));
+        }
+    }
+
+    public static void terminateOtherStreamingGames() {
+        List<Game> toTerminate = new ArrayList<>();
+        synchronized (activeStreamingGames) {
+            Iterator<WeakReference<Game>> it = activeStreamingGames.iterator();
+            while (it.hasNext()) {
+                Game g = it.next().get();
+                if (g == null) {
+                    it.remove();
+                } else {
+                    toTerminate.add(g);
+                    it.remove();
+                }
+            }
+        }
+        for (Game g : toTerminate) {
+            if (g != null && !g.isFinishing()) {
+                NvConnection.newConnectionIsTakingOver = true;
+                g.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        g.finish();
+                    }
+                });
+            }
+        }
+    }
+
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private VirtualController virtualController;
@@ -125,6 +175,19 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
     private int suppressPipRefCount = 0;
+
+    // Used to disable input after the stream has ended (e.g. because another
+    // connection was started in a separate window). This prevents crashes when
+    // the user interacts with a "displaced" / terminated stream window.
+    private boolean streamActive = true;
+
+    /**
+     * Call this when a fresh stream is starting in this Game instance.
+     * Resets the active flag (used after a previous displacement in some reuse cases).
+     */
+    private void markStreamActive() {
+        streamActive = true;
+    }
     private String pcName;
     private String appName;
     private NvApp app;
@@ -157,11 +220,18 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private ServiceConnection usbDriverServiceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName componentName, IBinder iBinder) {
-            UsbDriverService.UsbDriverBinder binder = (UsbDriverService.UsbDriverBinder) iBinder;
-            binder.setListener(controllerHandler);
-            binder.setStateListener(Game.this);
-            binder.start();
-            connectedToUsbDriverService = true;
+            if (iBinder instanceof UsbDriverService.UsbDriverBinder) {
+                UsbDriverService.UsbDriverBinder binder = (UsbDriverService.UsbDriverBinder) iBinder;
+                binder.setListener(controllerHandler);
+                binder.setStateListener(Game.this);
+                binder.start();
+                connectedToUsbDriverService = true;
+            } else {
+                // Cross-process bind (Game in :stream* while UsbDriverService in main process, or vice versa).
+                // Skip USB controller passthrough for this stream to avoid ClassCastException.
+                // (USB will only be fully available to streams in the process hosting the service.)
+                connectedToUsbDriverService = false;
+            }
         }
 
         @Override
@@ -1029,6 +1099,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void onDestroy() {
         super.onDestroy();
 
+        // Remove ourselves from the streaming game registry
+        synchronized (activeStreamingGames) {
+            Iterator<WeakReference<Game>> it = activeStreamingGames.iterator();
+            while (it.hasNext()) {
+                if (it.next().get() == this) {
+                    it.remove();
+                    break;
+                }
+            }
+        }
+
         if (controllerHandler != null) {
             controllerHandler.destroy();
         }
@@ -1307,6 +1388,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public boolean handleKeyDown(KeyEvent event) {
+        if (!streamActive) {
+            return true;  // consume to avoid sending to dead connection
+        }
+
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -1389,6 +1474,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public boolean handleKeyUp(KeyEvent event) {
+        if (!streamActive) {
+            return true;  // consume to avoid sending to dead connection
+        }
+
         // Pass-through virtual navigation keys
         if ((event.getFlags() & KeyEvent.FLAG_VIRTUAL_HARD_KEY) != 0) {
             return false;
@@ -1764,6 +1853,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Returns true if the event was consumed
     // NB: View is only present if called from a view callback
     private boolean handleMotionEvent(View view, MotionEvent event) {
+        if (!streamActive) {
+            // Previous stream was ended (e.g. by starting another in a new window).
+            // Consume the event so we don't send input to a dead connection (which
+            // can cause crashes) and keep the window stable.
+            return true;
+        }
+
         // Pass through mouse/touch/joystick input if we're not grabbing
         if (!grabbedInput) {
             return false;
@@ -2209,6 +2305,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private void stopConnection() {
         if (connecting || connected) {
             connecting = connected = false;
+            streamActive = false;
             updatePipAutoEnter();
 
             controllerHandler.stop();
@@ -2246,6 +2343,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;
                     LimeLog.severe(stage + " failed: " + errorCode);
+
+                    // If another stream took over, keep the window but mark inactive.
+                    if (NvConnection.newConnectionIsTakingOver) {
+                        streamActive = false;
+                        Toast.makeText(Game.this,
+                            "Stream ended because a new connection was started in another window.",
+                            Toast.LENGTH_LONG).show();
+                        return;
+                    }
 
                     // If video initialization failed and the surface is still valid, display extra information for the user
                     if (stage.contains("video") && streamView.getHolder().getSurface().isValid()) {
@@ -2292,6 +2398,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     displayedFailureDialog = true;
                     LimeLog.severe("Connection terminated: " + errorCode);
                     stopConnection();
+
+                    // If another stream is taking over the connection slot (user started
+                    // a new connection in a separate window), we stop this stream but
+                    // keep the window open (frozen last frame) so the user can have
+                    // multiple Game windows. We show a message and disable input to
+                    // avoid crashes.
+                    if (NvConnection.newConnectionIsTakingOver) {
+                        streamActive = false;
+                        Toast.makeText(Game.this,
+                            "Stream ended because a new connection was started in another window.",
+                            Toast.LENGTH_LONG).show();
+                        // Do not finish() - keep the window visible for the user.
+                        // The video will be the last received frame (frozen desktop).
+                        // Input is guarded below so clicks won't crash.
+                        return;
+                    }
 
                     // Display the error dialog if it was an unexpected termination.
                     // Otherwise, just finish the activity immediately.
@@ -2492,10 +2614,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (!attemptedConnection) {
             attemptedConnection = true;
 
+            // Register so other code (if any) can discover active streaming Games.
+            // We intentionally do not auto-terminate previous ones from here:
+            // this lets the first PC's window stay open when you start a second
+            // connection (its native stream will end, but the window remains).
+            Game.registerStreamingGame(Game.this);
+
             // Update GameManager state to indicate we're "loading" while connecting
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(holder);
+            markStreamActive();
             conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
                     decoderRenderer, Game.this);
         }

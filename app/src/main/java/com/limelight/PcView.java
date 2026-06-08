@@ -119,6 +119,7 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
     private final static int FULL_APP_LIST_ID = 9;
     private final static int TEST_NETWORK_ID = 10;
     private final static int GAMESTREAM_EOL_ID = 11;
+    private final static int RESUME_NEW_WINDOW_ID = 12;
 
     private void initializeViews() {
         setContentView(R.layout.activity_pc_view);
@@ -332,8 +333,17 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
         // Call superclass
         super.onCreateContextMenu(menu, v, menuInfo);
                 
-        AdapterContextMenuInfo info = (AdapterContextMenuInfo) menuInfo;
+        AdapterContextMenuInfo info = null;
+        if (menuInfo instanceof AdapterContextMenuInfo) {
+            info = (AdapterContextMenuInfo) menuInfo;
+        }
+        if (info == null || info.position < 0 || info.position >= pcGridAdapter.getCount()) {
+            return;
+        }
         ComputerObject computer = (ComputerObject) pcGridAdapter.getItem(info.position);
+        if (computer == null) {
+            return;
+        }
 
         // Add a header with PC status details
         menu.clearHeader();
@@ -369,14 +379,15 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
         else {
             if (computer.details.runningGameId != 0) {
                 menu.add(Menu.NONE, RESUME_ID, 1, getResources().getString(R.string.applist_menu_resume));
-                menu.add(Menu.NONE, QUIT_ID, 2, getResources().getString(R.string.applist_menu_quit));
+                menu.add(Menu.NONE, RESUME_NEW_WINDOW_ID, 2, getResources().getString(R.string.applist_menu_resume_new_window));
+                menu.add(Menu.NONE, QUIT_ID, 3, getResources().getString(R.string.applist_menu_quit));
             }
 
             if (computer.details.nvidiaServer) {
-                menu.add(Menu.NONE, GAMESTREAM_EOL_ID, 3, getResources().getString(R.string.pcview_menu_eol));
+                menu.add(Menu.NONE, GAMESTREAM_EOL_ID, 4, getResources().getString(R.string.pcview_menu_eol));
             }
 
-            menu.add(Menu.NONE, FULL_APP_LIST_ID, 4, getResources().getString(R.string.pcview_menu_app_list));
+            menu.add(Menu.NONE, FULL_APP_LIST_ID, 5, getResources().getString(R.string.pcview_menu_app_list));
         }
 
         menu.add(Menu.NONE, TEST_NETWORK_ID, 5, getResources().getString(R.string.pcview_menu_test_network));
@@ -602,8 +613,17 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
 
     @Override
     public boolean onContextItemSelected(MenuItem item) {
-        AdapterContextMenuInfo info = (AdapterContextMenuInfo) item.getMenuInfo();
+        AdapterContextMenuInfo info = null;
+        if (item.getMenuInfo() instanceof AdapterContextMenuInfo) {
+            info = (AdapterContextMenuInfo) item.getMenuInfo();
+        }
+        if (info == null || info.position < 0 || info.position >= pcGridAdapter.getCount()) {
+            return super.onContextItemSelected(item);
+        }
         final ComputerObject computer = (ComputerObject) pcGridAdapter.getItem(info.position);
+        if (computer == null) {
+            return super.onContextItemSelected(item);
+        }
         switch (item.getItemId()) {
             case PAIR_ID:
                 doPair(computer.details);
@@ -645,6 +665,15 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                 }
 
                 ServerHelper.doStart(this, new NvApp("app", computer.details.runningGameId, false), computer.details, managerBinder);
+                return true;
+
+            case RESUME_NEW_WINDOW_ID:
+                if (managerBinder == null) {
+                    Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
+                    return true;
+                }
+
+                ServerHelper.doStartInNewWindow(this, new NvApp("app", computer.details.runningGameId, false), computer.details, managerBinder);
                 return true;
 
             case QUIT_ID:
@@ -753,7 +782,13 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
             @Override
             public void onItemClick(AdapterView<?> arg0, View arg1, int pos,
                                     long id) {
+                if (pos < 0 || pos >= pcGridAdapter.getCount()) {
+                    return;
+                }
                 ComputerObject computer = (ComputerObject) pcGridAdapter.getItem(pos);
+                if (computer == null) {
+                    return;
+                }
                 if (computer.details.state == ComputerDetails.State.UNKNOWN ||
                     computer.details.state == ComputerDetails.State.OFFLINE) {
                     // Open the context menu if a PC is offline or refreshing
@@ -766,6 +801,12 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                 }
             }
         });
+        // No custom OnItemLongClickListener: we rely on registerForContextMenu(listView)
+        // which makes long-press automatically show the context menu (including the
+        // "Resume in new window" options we add for multi-connection support).
+        // A custom listener that calls openContextMenu (even deferred with post())
+        // was causing either StackOverflowError (recursion in AbsListView long-press
+        // handling on this VR platform) or the menu not appearing at all.
         UiHelper.applyStatusBarPadding(listView);
         registerForContextMenu(listView);
     }

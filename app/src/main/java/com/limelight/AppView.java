@@ -70,6 +70,9 @@ public class AppView extends Activity implements AdapterFragmentCallbacks {
     private final static int VIEW_DETAILS_ID = 5;
     private final static int CREATE_SHORTCUT_ID = 6;
     private final static int HIDE_APP_ID = 7;
+    private final static int START_NEW_WINDOW_ID = 8;
+    private final static int START_OR_RESUME_NEW_WINDOW_ID = 9;
+    private final static int START_WITH_QUIT_NEW_WINDOW_ID = 10;
 
     public final static String HIDDEN_APPS_PREF_FILENAME = "HiddenApps";
 
@@ -397,13 +400,18 @@ public class AppView extends Activity implements AdapterFragmentCallbacks {
 
         menu.setHeaderTitle(selectedApp.app.getAppName());
 
+        // Always allow starting this app in its own window for multi-connection use cases
+        menu.add(Menu.NONE, START_NEW_WINDOW_ID, 1, getResources().getString(R.string.applist_menu_start_new_window));
+
         if (lastRunningAppId != 0) {
             if (lastRunningAppId == selectedApp.app.getAppId()) {
-                menu.add(Menu.NONE, START_OR_RESUME_ID, 1, getResources().getString(R.string.applist_menu_resume));
-                menu.add(Menu.NONE, QUIT_ID, 2, getResources().getString(R.string.applist_menu_quit));
+                menu.add(Menu.NONE, START_OR_RESUME_ID, 2, getResources().getString(R.string.applist_menu_resume));
+                menu.add(Menu.NONE, START_OR_RESUME_NEW_WINDOW_ID, 3, getResources().getString(R.string.applist_menu_resume_new_window));
+                menu.add(Menu.NONE, QUIT_ID, 4, getResources().getString(R.string.applist_menu_quit));
             }
             else {
-                menu.add(Menu.NONE, START_WITH_QUIT, 1, getResources().getString(R.string.applist_menu_quit_and_start));
+                menu.add(Menu.NONE, START_WITH_QUIT, 2, getResources().getString(R.string.applist_menu_quit_and_start));
+                menu.add(Menu.NONE, START_WITH_QUIT_NEW_WINDOW_ID, 3, getResources().getString(R.string.applist_menu_quit_and_start_new_window));
             }
         }
 
@@ -450,9 +458,28 @@ public class AppView extends Activity implements AdapterFragmentCallbacks {
                 }, null);
                 return true;
 
+            case START_WITH_QUIT_NEW_WINDOW_ID:
+                // Display a confirmation dialog first
+                UiHelper.displayQuitConfirmationDialog(this, new Runnable() {
+                    @Override
+                    public void run() {
+                        ServerHelper.doStartInNewWindow(AppView.this, app.app, computer, managerBinder);
+                    }
+                }, null);
+                return true;
+
+            case START_NEW_WINDOW_ID:
+                ServerHelper.doStartInNewWindow(AppView.this, app.app, computer, managerBinder);
+                return true;
+
             case START_OR_RESUME_ID:
                 // Resume is the same as start for us
                 ServerHelper.doStart(AppView.this, app.app, computer, managerBinder);
+                return true;
+
+            case START_OR_RESUME_NEW_WINDOW_ID:
+                // Resume in a separate window (for multi-connection use)
+                ServerHelper.doStartInNewWindow(AppView.this, app.app, computer, managerBinder);
                 return true;
 
             case QUIT_ID:

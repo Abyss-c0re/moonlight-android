@@ -124,6 +124,9 @@
     <string name="applist_menu_scut">Create Shortcut</string>
     <string name="applist_menu_tv_channel">Add to Channel</string>
     <string name="applist_menu_hide_app">Hide App</string>
+    <string name="applist_menu_start_new_window">Start in new window</string>
+    <string name="applist_menu_resume_new_window">Resume in new window</string>
+    <string name="applist_menu_quit_and_start_new_window">Quit Current Game and Start in new window</string>
     <string name="applist_refresh_title">App List</string>
     <string name="applist_refresh_msg">Refreshing apps…</string>
     <string name="applist_refresh_error_title">Error</string>

@@ -6,6 +6,9 @@ import android.widget.Toast;
 
 import com.limelight.AppView;
 import com.limelight.Game;
+import com.limelight.Game2;
+import com.limelight.Game3;
+import com.limelight.Game4;
 import com.limelight.R;
 import com.limelight.ShortcutTrampoline;
 import com.limelight.binding.PlatformBinding;
@@ -25,6 +28,27 @@ import java.security.cert.CertificateEncodingException;
 
 public class ServerHelper {
     public static final String CONNECTION_TEST_SERVER = "android.conntest.moonlight-stream.org";
+
+    // We support a small number of concurrent stream "slots" by launching
+    // the streaming UI into separate Android processes (via android:process
+    // in the manifest + thin GameN subclasses). Each process gets its own
+    // copy of the native moonlight-core library and all its global state.
+    // This is exactly what app cloners do under the hood, and is the only
+    // practical way to have truly simultaneous live streams to multiple PCs.
+    private static int nextConcurrentSlot = 1;
+    private static final int MAX_CONCURRENT_STREAMS = 4;
+
+    private static Class<? extends Game> getGameActivityClassForNewWindow() {
+        int slot = nextConcurrentSlot;
+        nextConcurrentSlot = (nextConcurrentSlot % MAX_CONCURRENT_STREAMS) + 1;
+
+        switch (slot) {
+            case 1: return Game2.class;
+            case 2: return Game3.class;
+            case 3: return Game4.class;
+            default: return Game.class;
+        }
+    }
 
     public static ComputerDetails.AddressTuple getCurrentAddressFromComputer(ComputerDetails computer) throws IOException {
         if (computer.activeAddress == null) {
@@ -54,7 +78,17 @@ public class ServerHelper {
 
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
-        Intent intent = new Intent(parent, Game.class);
+        return createStartIntent(parent, app, computer, managerBinder, false);
+    }
+
+    public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
+                                           ComputerManagerService.ComputerManagerBinder managerBinder,
+                                           boolean useConcurrentStreamSlot) {
+        Class<? extends Game> gameClass = useConcurrentStreamSlot
+                ? getGameActivityClassForNewWindow()
+                : Game.class;
+
+        Intent intent = new Intent(parent, gameClass);
         intent.putExtra(Game.EXTRA_HOST, computer.activeAddress.address);
         intent.putExtra(Game.EXTRA_PORT, computer.activeAddress.port);
         intent.putExtra(Game.EXTRA_HTTPS_PORT, computer.httpsPort);
@@ -81,6 +115,21 @@ public class ServerHelper {
             return;
         }
         parent.startActivity(createStartIntent(parent, app, computer, managerBinder));
+    }
+
+    public static void doStartInNewWindow(Activity parent, NvApp app, ComputerDetails computer,
+                                          ComputerManagerService.ComputerManagerBinder managerBinder) {
+        if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
+            Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Use a dedicated process slot. This gives an independent copy of the
+        // native moonlight-core library (with its global connection state).
+        // This is what enables true simultaneous live streams to different PCs
+        // (the same mechanism that app cloners use).
+        Intent intent = createStartIntent(parent, app, computer, managerBinder, true);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+        parent.startActivity(intent);
     }
 
     public static void doNetworkTest(final Activity parent) {

@@ -46,6 +46,14 @@ public class NvConnection {
     private String uniqueId;
     private ConnectionContext context;
     private static Semaphore connectionAllowed = new Semaphore(1);
+
+    /**
+     * Set to true by a new NvConnection that is taking over the single connection
+     * slot (e.g. launching a stream "in a new window" to another PC while one is
+     * still active). The displaced Game activity should then exit quietly instead
+     * of showing a scary "connection terminated" dialog to the user.
+     */
+    public static volatile boolean newConnectionIsTakingOver;
     private final boolean isMonkey;
     private final Context appContext;
 
@@ -97,7 +105,11 @@ public class NvConnection {
             MoonBridge.cleanupBridge();
         }
 
-        // Now a pending connection can be processed
+        // Always leave the semaphore in a clean "available" state (1 permit).
+        // This is resilient to the multi-window "new connection" case where we may
+        // have forcibly stopped a previous session (and the old owner may also release).
+        newConnectionIsTakingOver = false;
+        connectionAllowed.drainPermits();
         connectionAllowed.release();
     }
 
@@ -411,11 +423,32 @@ public class NvConnection {
                 ByteBuffer ib = ByteBuffer.allocate(16);
                 ib.putInt(context.riKeyId);
 
+                // If another connection is holding the slot (i.e. a previous stream
+                // is still "active" from the engine's point of view), forcibly take
+                // over the native session so our new start can succeed.
+                // The core only supports one live stream; we clean up the previous
+                // native state here. UI-level termination of old Game windows is
+                // handled when the new Game activity's surfaceChanged runs.
+                if (connectionAllowed.availablePermits() == 0) {
+                    newConnectionIsTakingOver = true;
+                    MoonBridge.interruptConnection();
+                    synchronized (MoonBridge.class) {
+                        MoonBridge.stopConnection();
+                        MoonBridge.cleanupBridge();
+                    }
+                    connectionAllowed.drainPermits();
+                    connectionAllowed.release();
+                }
+
                 // Acquire the connection semaphore to ensure we only have one
-                // connection going at once.
+                // active native connection *per process*. When using "new window"
+                // for additional PCs we launch into Game2/Game3/... which run in
+                // separate processes (see AndroidManifest), giving each its own
+                // native state and thus allowing true simultaneous streams.
                 try {
                     connectionAllowed.acquire();
                 } catch (InterruptedException e) {
+                    newConnectionIsTakingOver = false;
                     context.connListener.displayMessage(e.getMessage());
                     context.connListener.stageFailed(appName, 0, 0);
                     return;
@@ -440,11 +473,14 @@ public class NvConnection {
                             context.streamConfig.getColorRange());
                     if (ret != 0) {
                         // LiStartConnection() failed, so the caller is not expected
-                        // to stop the connection themselves. We need to release their
-                        // semaphore count for them.
+                        // to stop the connection themselves. Reset the slot cleanly.
+                        newConnectionIsTakingOver = false;
+                        connectionAllowed.drainPermits();
                         connectionAllowed.release();
                         return;
                     }
+                    // Clear the takeover flag (only relevant if we displaced a previous stream).
+                    newConnectionIsTakingOver = false;
                 }
             }
         }).start();

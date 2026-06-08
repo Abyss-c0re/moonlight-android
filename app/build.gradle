@@ -84,9 +84,9 @@ android {
             applicationIdSuffix ".debug"
             resValue "string", "app_label", "Moonlight (Debug)"
             resValue "string", "app_label_root", "Moonlight (Root Debug)"
-
-            minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Minification is intentionally disabled for debug builds.
+            // Debuggable + minifyEnabled is no longer allowed in modern AGP
+            // (optimizations and obfuscation are forcibly disabled anyway).
         }
         release {
             // To whomever is releasing/using an APK in release mode with
