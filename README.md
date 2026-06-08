@@ -36,6 +36,10 @@ Upstream Moonlight Android (and the underlying native `moonlight-common-c` libra
 - **VR / Quest-specific considerations**  
   The fork has been developed and tested primarily on Meta Quest devices (including volumetric / 3D multi-window environments). Some UI elements (context menus on long press, window focus behavior, etc.) behave differently in the Quest shell than on a normal phone or tablet. The code contains defensive guards for stale list positions, cross-process service binding (USB driver, etc.), and process-aware takeover logic.
 
+- **Controller pointer as mouse (Quest Touch / laser pointer)**  
+  New optional setting **“Capture controller pointer as mouse”** (in the Input Settings section when configuring a stream; disabled by default).  
+  On Meta Quest headsets, this lets the Touch controller’s laser pointer / virtual cursor continuously drive the remote PC’s mouse position. Previously the mouse would only warp to the pointer location when you pressed the trigger. This makes desktop-style interaction and precise pointing much more natural while streaming.
+
 - **v76+ firmware crash fix (original reason for the fork)**  
   Starting with Meta Quest firmware v76+, Meta removed yet another internal Android OS component — the GameManager (gaming mode / performance service, historically reachable via `com.oculus.gamemanager.GameManager` or through reflection on system services).  
 

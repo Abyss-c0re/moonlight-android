@@ -204,6 +204,8 @@
     <string name="summary_checkbox_absolute_mouse_mode">This can make mouse acceleration behave more naturally for remote desktop usage, but it is incompatible with many games.</string>
     <string name="title_checkbox_mouse_nav_buttons">Enable back and forward mouse buttons</string>
     <string name="summary_checkbox_mouse_nav_buttons">Enabling this option may break right clicking on some buggy devices</string>
+    <string name="title_checkbox_controller_pointer_as_mouse">Capture controller pointer as mouse</string>
+    <string name="summary_checkbox_controller_pointer_as_mouse">For VR headsets like Oculus/Meta Quest, continuously update the mouse cursor from the Touch controller laser pointer. The mouse will follow the pointer position while streaming instead of only jumping when the trigger is pressed.</string>
 
     <string name="category_on_screen_controls_settings">On-screen Controls Settings</string>
     <string name="title_checkbox_show_onscreen_controls">Show on-screen controls</string>

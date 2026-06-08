@@ -1867,6 +1867,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         int eventSource = event.getSource();
         int deviceSources = event.getDevice() != null ? event.getDevice().getSources() : 0;
+
+        // When "Capture controller pointer as mouse" is enabled, feed absolute pointer
+        // coordinates from controller/VR devices (Oculus Touch laser etc.) into the
+        // host mouse position as early as possible. These events often arrive on devices
+        // that also have JOYSTICK sources, so the controller handler would otherwise
+        // consume the event before we reach the normal POINTER handling below.
+        // We only do this for non-relative (absolute) pointer data.
+        if (prefConfig.controllerPointerAsMouse &&
+                (eventSource & InputDevice.SOURCE_CLASS_POINTER) != 0 &&
+                (inputCaptureProvider == null || !inputCaptureProvider.eventHasRelativeMouseAxes(event))) {
+            LimeLog.info("Controller pointer as mouse: source=0x" + Integer.toHexString(eventSource) +
+                    " dev=" + (event.getDevice() != null ? event.getDevice().getName() : "null") +
+                    " action=" + MotionEvent.actionToString(event.getActionMasked()) +
+                    " x=" + event.getX(0) + " y=" + event.getY(0));
+            updateMousePosition(streamView, event);
+        }
+
         if ((eventSource & InputDevice.SOURCE_CLASS_JOYSTICK) != 0) {
             if (controllerHandler.handleMotionEvent(event)) {
                 return true;
