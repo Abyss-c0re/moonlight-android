@@ -1996,8 +1996,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             PreferenceConfiguration.DEFAULT_CONTROLLER_POINTER_AS_MOUSE);
 
         // Force the capture state to match the current passthrough pref on every input event.
-        // This ensures that toggling the option (even from another process) takes effect
-        // on the next mouse/controller event without waiting for setInputGrabState or listener.
+        // Passthrough controls capture for normal mouse input. The controller pointer
+        // feature is handled independently via isControllerPointer special cases below
+        // (so the laser can drive the remote mouse even while capture is active for
+        // physical mice).
         if (inputCaptureProvider != null) {
             boolean currentlyCapturing = inputCaptureProvider.isCapturingActive();
             if (passthrough && currentlyCapturing) {
@@ -2009,13 +2011,37 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         int eventSource = event.getSource();
 
+        // Events that look like real mice / styluses (these get explicit handling later).
+        // We use this to make controller laser detection more precise so that the
+        // controller pointer setting remains independent of passthrough.
+        boolean looksLikeRealMouse =
+                eventSource == InputDevice.SOURCE_MOUSE ||
+                eventSource == InputDevice.SOURCE_MOUSE_RELATIVE ||
+                (event.getPointerCount() >= 1 &&
+                        (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE ||
+                         event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
+                         event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER));
+
         // Identify events that come from controller laser/pointer devices (e.g. Quest Touch).
-        // The controllerPtr (live setting) decides whether we treat them specially as mouse.
+        // This detection is kept independent of the passthrough/capture state so that
+        // the "Capture controller pointer as mouse" setting can be toggled separately
+        // from "Absolute mouse passthrough".
         boolean controllerPointerDevice =
                 (eventSource & InputDevice.SOURCE_CLASS_POINTER) != 0 &&
+                !looksLikeRealMouse &&
                 (inputCaptureProvider == null || !inputCaptureProvider.eventHasRelativeMouseAxes(event));
 
         boolean isControllerPointer = controllerPtr && controllerPointerDevice;
+
+        // When the controller pointer setting is off, we still want trigger/button events
+        // from the laser to warp the cursor and generate a click (the pre-feature "only on
+        // trigger" behavior). Pure move/hover events must not continuously follow.
+        boolean forceLaserClickEntry = controllerPointerDevice &&
+            (event.getButtonState() != 0 ||
+             event.getActionMasked() == MotionEvent.ACTION_DOWN ||
+             event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN ||
+             event.getActionMasked() == MotionEvent.ACTION_UP ||
+             event.getActionMasked() == MotionEvent.ACTION_POINTER_UP);
 
         // Oculus/Meta Quest Touch controller pointer as mouse (laser / virtual cursor).
         // Feed absolute pointer position from these controller devices to the host mouse.
@@ -2043,8 +2069,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             if (!isControllerPointer && !passthrough) {
                 // Regular non-grabbed USB mouse events: let the system handle them
                 // (so you can click other Quest windows).
-                // Controller pointer events and mouse passthrough must continue so
-                // position and clicks are forwarded to the host.
+                return false;
+            }
+            // Controller laser with follow setting off: let the system handle it for
+            // other windows (except button events, which should still produce warp+click).
+            if (controllerPointerDevice && !controllerPtr && !forceLaserClickEntry) {
                 return false;
             }
         }
@@ -2075,8 +2104,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                                     event.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS ||
                                     event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER)) ||
                     eventSource == 12290 || // 12290 = Samsung DeX mode desktop mouse
-                    isControllerPointer || // controller laser pointer events should be treated as mouse for position + clicks
-                    passthrough) // in passthrough mode, treat pointer events as absolute mouse to forward without capture
+                    isControllerPointer || // controller laser pointer events (only when the controller pointer setting is enabled)
+                    (passthrough && !controllerPointerDevice) ||
+                    forceLaserClickEntry) // allow laser button/trigger events to warp + click even when the follow setting is off (restores old "only on trigger" behavior; setting only controls continuous following)
             {
                 int buttonState = event.getButtonState();
                 int changedButtons = buttonState ^ lastButtonState;
@@ -2266,6 +2296,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // This case is for fingers
             else
             {
+                if (controllerPointerDevice && !controllerPtr) {
+                    // Controller laser with "follow" setting off: do not let moves/hovers
+                    // drive the remote cursor via touch emulation. Button events are
+                    // routed via forceLaserClickEntry so they still produce the warp+click.
+                    return true;
+                }
+
                 if (virtualController != null &&
                         (virtualController.getControllerMode() == VirtualController.ControllerMode.MoveButtons ||
                          virtualController.getControllerMode() == VirtualController.ControllerMode.ResizeButtons)) {
