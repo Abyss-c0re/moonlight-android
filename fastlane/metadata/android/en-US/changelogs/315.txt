@@ -1,0 +1,5 @@
+- Fixed "Absolute mouse passthrough" and "Capture controller pointer as mouse" options so that disabling them properly restores previous behavior (changes now take effect immediately)
+- The two Quest-specific input options are now fully independent of each other
+- "Capture controller pointer as mouse" now only affects continuous following — trigger presses still warp the cursor and generate clicks when disabled (matching the pre-feature behavior)
+- Settings toggles work across stream processes and mid-stream without requiring a restart
+- Multiple fixes to pointer/laser handling, click passthrough, and capture state when using these options in combination
