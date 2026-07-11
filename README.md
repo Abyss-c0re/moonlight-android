@@ -39,7 +39,7 @@ Typical cases:
   Several options and defensive fixes target Meta Quest and similar headsets (volumetric / 3D multi-window, laser pointer mouse, absolute mouse passthrough). UI details (context menus on long press, window focus, etc.) can differ from a normal phone or tablet. The code guards stale list positions, cross-process service binding (USB driver, etc.), and process-aware takeover.
 
 - **Hardware keyboard devices (e.g. Titan 2)**  
-  Optional input settings help when a physical keyboard is attached or built in (character composition, capture behavior). See Input Settings while configuring a stream.
+  Optional input settings help when a physical keyboard is attached or built in. **Local Alt for special characters** (Input Settings; off by default) keeps Alt on the Android side for character composition instead of always forwarding Alt to the remote PC. Remote Alt shortcuts do not work while that option is enabled.
 
 - **Controller pointer as mouse (Quest Touch / laser pointer)**  
   Optional setting **“Capture controller pointer as mouse”** (Input Settings; disabled by default).  

@@ -70,6 +70,7 @@ public class PreferenceConfiguration {
     private static final String GAMEPAD_MOTION_FALLBACK_PREF_STRING = "checkbox_gamepad_motion_fallback";
     public static final String CONTROLLER_POINTER_AS_MOUSE_PREF_STRING = "checkbox_controller_pointer_as_mouse";
     public static final String MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING = "checkbox_mouse_absolute_passthrough";
+    public static final String LOCAL_ALT_SPECIAL_CHARS_PREF_STRING = "checkbox_local_alt_special_chars";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
     static final String DEFAULT_FPS = "60";
@@ -112,6 +113,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_GAMEPAD_MOTION_FALLBACK = false;
     public static final boolean DEFAULT_CONTROLLER_POINTER_AS_MOUSE = false;
     public static final boolean DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH = false;
+    public static final boolean DEFAULT_LOCAL_ALT_SPECIAL_CHARS = false;
 
     public static final int FRAME_PACING_MIN_LATENCY = 0;
     public static final int FRAME_PACING_BALANCED = 1;
@@ -161,6 +163,7 @@ public class PreferenceConfiguration {
     public boolean gamepadMotionSensorsFallbackToDevice;
     public boolean controllerPointerAsMouse;
     public boolean mouseAbsolutePassthrough;
+    public boolean localAltSpecialChars;
 
     public static boolean isNativeResolution(int width, int height) {
         // It's not a native resolution if it matches an existing resolution option
@@ -609,6 +612,7 @@ public class PreferenceConfiguration {
         config.gamepadMotionSensorsFallbackToDevice = prefs.getBoolean(GAMEPAD_MOTION_FALLBACK_PREF_STRING, DEFAULT_GAMEPAD_MOTION_FALLBACK);
         config.controllerPointerAsMouse = prefs.getBoolean(CONTROLLER_POINTER_AS_MOUSE_PREF_STRING, DEFAULT_CONTROLLER_POINTER_AS_MOUSE);
         config.mouseAbsolutePassthrough = prefs.getBoolean(MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING, DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH);
+        config.localAltSpecialChars = prefs.getBoolean(LOCAL_ALT_SPECIAL_CHARS_PREF_STRING, DEFAULT_LOCAL_ALT_SPECIAL_CHARS);
 
         return config;
     }

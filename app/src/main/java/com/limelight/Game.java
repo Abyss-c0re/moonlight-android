@@ -1470,17 +1470,75 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (event.isCtrlPressed()) {
             modifier |= KeyboardPacket.MODIFIER_CTRL;
         }
-        if (event.isAltPressed()) {
+        // When local Alt mode is on, never report Alt to the host so composed
+        // characters stay on the Android side (see localAltSpecialChars).
+        if (event.isAltPressed() && !prefConfig.localAltSpecialChars) {
             modifier |= KeyboardPacket.MODIFIER_ALT;
         }
         if (event.isMetaPressed()) {
             modifier |= KeyboardPacket.MODIFIER_META;
         }
+        if (prefConfig.localAltSpecialChars) {
+            modifier &= ~KeyboardPacket.MODIFIER_ALT;
+        }
         return modifier;
     }
 
     private byte getModifierState() {
-        return (byte) modifierFlags;
+        byte modifier = (byte) modifierFlags;
+        if (prefConfig.localAltSpecialChars) {
+            modifier &= ~KeyboardPacket.MODIFIER_ALT;
+        }
+        return modifier;
+    }
+
+    private static boolean isAltKeyCode(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_ALT_LEFT || keyCode == KeyEvent.KEYCODE_ALT_RIGHT;
+    }
+
+    /**
+     * When local Alt mode is enabled, prefer Android's Alt-composed unicode
+     * character (hardware keyboard maps, e.g. Titan 2) over forwarding Alt+key
+     * to the remote host.
+     *
+     * @return true if the event was fully handled (caller should return)
+     */
+    private boolean tryHandleLocalAltComposedChar(KeyEvent event, boolean down) {
+        if (!prefConfig.localAltSpecialChars) {
+            return false;
+        }
+        if (!event.isAltPressed() || event.isCtrlPressed() || event.isMetaPressed()) {
+            return false;
+        }
+
+        int unicodeChar = event.getUnicodeChar();
+        if (unicodeChar == 0 || (unicodeChar & KeyCharacterMap.COMBINING_ACCENT) != 0) {
+            return false;
+        }
+        int ch = unicodeChar & KeyCharacterMap.COMBINING_ACCENT_MASK;
+        if (ch == 0 || Character.isISOControl(ch)) {
+            return false;
+        }
+
+        // Compare with the same key without Alt. If Alt changes the character,
+        // send the composed glyph as UTF-8 text instead of a remote Alt+key.
+        int metaWithoutAlt = event.getMetaState()
+                & ~(KeyEvent.META_ALT_ON | KeyEvent.META_ALT_LEFT_ON | KeyEvent.META_ALT_RIGHT_ON);
+        int withoutAlt = event.getUnicodeChar(metaWithoutAlt);
+        int baseCh = withoutAlt & KeyCharacterMap.COMBINING_ACCENT_MASK;
+        if ((withoutAlt & KeyCharacterMap.COMBINING_ACCENT) != 0) {
+            baseCh = 0;
+        }
+        if (ch == baseCh) {
+            // Alt did not change the glyph; fall through and send the key
+            // without the Alt modifier (stripped in getModifierState).
+            return false;
+        }
+
+        if (down && event.getRepeatCount() == 0) {
+            conn.sendUtf8Text(String.valueOf((char) ch));
+        }
+        return true;
     }
 
     @Override
@@ -1537,6 +1595,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // Pass through keyboard input if we're not grabbing
             if (!grabbedInput) {
                 return false;
+            }
+
+            // Local Alt mode: never forward bare Alt to the host. Still track it
+            // in handleSpecialKeys for Ctrl+Alt+Shift client combos.
+            if (prefConfig.localAltSpecialChars && isAltKeyCode(event.getKeyCode())) {
+                return true;
+            }
+
+            // Prefer Android Alt-composed characters over remote Alt+key.
+            if (tryHandleLocalAltComposedChar(event, true)) {
+                return true;
             }
 
             // We'll send it as a raw key event if we have a key mapping, otherwise we'll send it
@@ -1620,6 +1689,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // Pass through keyboard input if we're not grabbing
             if (!grabbedInput) {
                 return false;
+            }
+
+            if (prefConfig.localAltSpecialChars && isAltKeyCode(event.getKeyCode())) {
+                return true;
+            }
+
+            // Match key-down: consume composed Alt characters without a remote key up.
+            if (tryHandleLocalAltComposedChar(event, false)) {
+                return true;
             }
 
             short translated = keyboardTranslator.translate(event.getKeyCode(), event.getDeviceId());
