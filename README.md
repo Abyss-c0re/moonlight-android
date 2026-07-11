@@ -1,10 +1,10 @@
-# Moonlight Android – XR / Meta Quest Experimental Fork
+# Moonlight Android – headset & keyboard tweaks fork
 
-**This fork was originally created to fix crashes on Meta Quest devices running v76+ firmware** (caused by Meta removing the GameManager component — see "Quest Firmware Compatibility" section below).
+**This fork was originally created to fix crashes on Meta Quest devices running v76+ firmware** (caused by Meta removing the GameManager component — see the firmware notes below).
 
-It has since been extended with **multi-window and multi-process support** to enable simultaneous active streaming connections to multiple PCs (the native library only supports one connection per process).
+It has since been extended with **multi-window and multi-process support**, plus input tweaks that help on **VR headsets** and **hardware keyboard devices** (for example the Unihertz Titan 2).
 
-**⚠️ This remains an experimental fork targeting XR devices (primarily Meta Quest headsets).** It is not intended as a general-purpose replacement for upstream Moonlight Android.
+**This is an experimental fork.** It is not intended as a general-purpose replacement for upstream Moonlight Android. Use it when you need the multi-window stream slots or the headset/keyboard-oriented options described here.
 
 [![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/232a8tadrrn8jv0k/branch/master?svg=true)](https://ci.appveyor.com/project/cgutman/moonlight-android/branch/master)
 [![Translation Status](https://hosted.weblate.org/widgets/moonlight/-/moonlight-android/svg-badge.svg)](https://hosted.weblate.org/projects/moonlight/moonlight-android/)
@@ -13,11 +13,13 @@ It has since been extended with **multi-window and multi-process support** to en
 
 ## What’s Different in This Fork
 
-Upstream Moonlight Android (and the underlying native `moonlight-common-c` library) only supports **one active streaming connection per process**. This works fine on phones and tablets, but is very limiting on XR devices where you often want to:
+Upstream Moonlight Android (and the underlying native `moonlight-common-c` library) only supports **one active streaming connection per process**. That is fine on phones and tablets, but limiting when you want multiple streams or multi-window desktop use (common on headsets and some productivity setups).
+
+Typical cases:
 
 - Stream from two (or more) gaming PCs at the same time
 - Keep one stream running in a volumetric / multi-window while using the PC list or AppView in another
-- Take advantage of Quest’s multi-window / freeform / virtual desktop features
+- Use Quest multi-window / freeform / virtual desktop features
 
 ### Key Changes
 
@@ -33,27 +35,30 @@ Upstream Moonlight Android (and the underlying native `moonlight-common-c` libra
   - Inside an AppView (after clicking a PC), long-press an app or use the context menu items **“Start in new window”**, **“Resume in new window”**, **“Quit Current Game and Start in new window”**.
   - These paths deliberately launch into a fresh process slot instead of replacing the existing stream.
 
-- **VR / Quest-specific considerations**  
-  The fork has been developed and tested primarily on Meta Quest devices (including volumetric / 3D multi-window environments). Some UI elements (context menus on long press, window focus behavior, etc.) behave differently in the Quest shell than on a normal phone or tablet. The code contains defensive guards for stale list positions, cross-process service binding (USB driver, etc.), and process-aware takeover logic.
+- **VR headset considerations**  
+  Several options and defensive fixes target Meta Quest and similar headsets (volumetric / 3D multi-window, laser pointer mouse, absolute mouse passthrough). UI details (context menus on long press, window focus, etc.) can differ from a normal phone or tablet. The code guards stale list positions, cross-process service binding (USB driver, etc.), and process-aware takeover.
+
+- **Hardware keyboard devices (e.g. Titan 2)**  
+  Optional input settings help when a physical keyboard is attached or built in (character composition, capture behavior). See Input Settings while configuring a stream.
 
 - **Controller pointer as mouse (Quest Touch / laser pointer)**  
-  New optional setting **“Capture controller pointer as mouse”** (in the Input Settings section when configuring a stream; disabled by default).  
-  On Meta Quest headsets, this lets the Touch controller’s laser pointer / virtual cursor continuously drive the remote PC’s mouse position. Previously the mouse would only warp to the pointer location when you pressed the trigger. This makes desktop-style interaction and precise pointing much more natural while streaming.
+  Optional setting **“Capture controller pointer as mouse”** (Input Settings; disabled by default).  
+  On Meta Quest headsets, the Touch controller laser pointer / virtual cursor continuously drives the remote PC’s mouse position instead of only jumping when the trigger is pressed.
 
 - **Absolute mouse passthrough (no pointer capture)**  
-  New optional setting **“Absolute mouse passthrough (no pointer capture)”** (in the Input Settings section when configuring a stream; disabled by default).  
-  When enabled, the local Android cursor stays visible at all times and directly controls the remote PC’s mouse when over the stream window. Mouse movements and clicks are forwarded as absolute input. Pointer capture is never used for the mouse, so there is no grabbing, releasing, edge detection, or virtual cursor tracking. Simply move the cursor out of the Moonlight window to use other Quest windows or the system UI. This is the recommended mode for desktop and productivity use inside Quest’s multi-window / freeform environment.
+  Optional setting **“Absolute mouse passthrough (no pointer capture)”** (Input Settings; disabled by default).  
+  When enabled, the local Android cursor stays visible and controls the remote PC’s mouse over the stream window via absolute input. Pointer capture is not used, so you can move the cursor out of the Moonlight window to other Quest windows or the system UI. Useful for multi-window desktop use on headsets.
 
 - **v76+ firmware crash fix (original reason for the fork)**  
-  Starting with Meta Quest firmware v76+, Meta removed yet another internal Android OS component — the GameManager (gaming mode / performance service, historically reachable via `com.oculus.gamemanager.GameManager` or through reflection on system services).  
+  Starting with Meta Quest firmware v76+, Meta removed the GameManager component (gaming mode / performance service, historically `com.oculus.gamemanager.GameManager` or reflection on system services).
 
-  Upstream Moonlight called into this to call `setGameModeStatus()` (and similar) so the headset would know the app was actively gaming. This allowed Quest to apply better CPU/GPU scheduling, thermal headroom, and "in-game" power profiles.
+  Upstream Moonlight called `setGameModeStatus()` (and similar) so the headset could apply gaming CPU/GPU scheduling and power profiles.
 
-  After the removal, any attempt to obtain the service or invoke the methods (even defensively via reflection) would throw and crash the app — typically on stream launch or very early in `Game` activity creation.
+  After the removal, obtaining the service or invoking those methods crashed the app — typically on stream launch or early in `Game` activity creation.
 
-  The fix (commit `2276a02f` titled "Removed callings to GameManager") excises the integration entirely:
+  The fix (commit `2276a02f`, "Removed callings to GameManager") removes the integration:
 
-  - In `UiHelper.java` the five notification methods are reduced to no-ops:
+  - In `UiHelper.java` the five notification methods are no-ops:
     ```java
     public static void notifyStreamConnecting(Context context) { /* No-op */ }
     public static void notifyStreamConnected(Context context) { /* No-op */ }
@@ -61,12 +66,12 @@ Upstream Moonlight Android (and the underlying native `moonlight-common-c` libra
     public static void notifyStreamExitingPiP(Context context) { /* No-op */ }
     public static void notifyStreamEnded(Context context) { /* No-op */ }
     ```
-    A comment documents the removal:
+    Comment in tree:
     ```java
     // Removed setGameModeStatus() and its calls from this class
     ```
 
-  - The call sites inside `Game.java` (in `onPictureInPictureRequested`, `stopConnection`, `surfaceChanged`, `connectionStarted`, etc.) still invoke the no-op helpers so the call sites didn't have to be littered with conditionals:
+  - Call sites in `Game.java` still invoke the no-op helpers so they stay consistent:
     ```java
     UiHelper.notifyStreamConnected(Game.this);
     UiHelper.notifyStreamEnded(this);
@@ -74,24 +79,24 @@ Upstream Moonlight Android (and the underlying native `moonlight-common-c` libra
     ...
     ```
 
-  This was the original motivation for the fork. The multi-window / separate-process work for simultaneous PC streaming was layered on top afterward.
+  Multi-window / separate-process work was added after that baseline.
 
-  Note that "debug" builds (`com.limelight.debug`) and any "unofficial"/"stable" side-loads may have different package IDs, which can affect how the Quest shell and library permissions treat them.
+  Note that "debug" builds (`com.limelight.debug`) and unofficial side-loads may use different package IDs, which can affect Quest shell and library permissions.
 
 - **Upstream behavior is largely preserved for single-stream use**  
-  Normal short clicks, the main PC list, AppView, etc. continue to work as before. The multi-window features are opt-in via long press or the explicit “in new window” menu items.
+  Normal short clicks, the main PC list, AppView, etc. continue to work as before. Multi-window features are opt-in via long press or the “in new window” menu items. Optional input tweaks default to off.
 
 ---
 
 ## Limitations & Known Issues
 
-- Only **one active native stream per process**. The four process slots give you a practical maximum of ~4 truly simultaneous live connections.
+- Only **one active native stream per process**. The four process slots give a practical maximum of ~4 simultaneous live connections.
 - USB controller passthrough is only fully reliable in the primary stream process (`:stream`). Secondary slots fall back gracefully.
-- This is **experimental**. You may encounter crashes, frozen windows, focus issues, or other quirks, especially when rapidly opening/closing windows or when the Quest shell is managing many volumetric windows.
-- Debug and release (“stable”) builds may behave slightly differently (different package names, ProGuard, etc.). Use the debug build (`com.limelight.debug`) when reporting issues.
-- Some features that assume a single-process world (certain singletons, shortcut handling, USB driver state) have been made more defensive but are not perfect.
+- This is **experimental**. You may hit crashes, frozen windows, focus issues, or other quirks, especially when opening/closing windows quickly or when a headset shell manages many volumetric windows.
+- Debug and release (“stable”) builds may differ (package names, ProGuard, etc.). Prefer the debug build (`com.limelight.debug`) when reporting issues.
+- Some features that assume a single-process world (singletons, shortcut handling, USB driver state) are more defensive but not perfect.
 
-If you just want normal single-PC streaming on a phone or tablet, you are probably better off with the official upstream build.
+If you only need normal single-PC streaming on a phone or tablet, the official upstream build is usually the better choice.
 
 ---
 
@@ -159,7 +164,7 @@ This fork is based on the excellent work of the upstream Moonlight Android team:
 
 Moonlight is the work of students at [Case Western](http://case.edu) and was started as a project at [MHacks](http://mhacks.org).
 
-The XR / multi-process / multi-window changes in this fork were developed to make simultaneous PC streaming practical on Meta Quest and similar devices.
+Multi-process / multi-window support and headset/keyboard-oriented options in this fork exist to make simultaneous PC streaming and hardware-keyboard use practical on devices such as Meta Quest and keyboard phones (e.g. Titan 2).
 
 Upstream project: https://github.com/moonlight-stream/moonlight-android  
 Upstream website: https://moonlight-stream.org
