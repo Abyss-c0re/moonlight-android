@@ -3,6 +3,8 @@ package com.limelight.binding.video;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
@@ -48,9 +50,32 @@ public class MediaCodecHelper {
     public static final boolean SHOULD_BYPASS_SOFTWARE_BLOCK =
             Build.HARDWARE.equals("ranchu") || Build.HARDWARE.equals("cheets") || Build.BRAND.equals("Android-x86");
 
+    /**
+     * OEM / vendor media_codecs XML paths. Treble GSI often only registers the
+     * software Codec2 store in MediaCodecList while vendor HAL still has HW
+     * codecs (e.g. Unihertz Titan 2 stock vendor: c2.mtk.avc.decoder). We parse
+     * these files so any device with incomplete MediaCodecList still gets HW.
+     * Reusable — not a Titan product hardcode.
+     */
+    private static final String[] VENDOR_CODEC_XML_PATHS = new String[] {
+            "/vendor/etc/media_codecs_c2.xml",
+            "/vendor/etc/media_codecs.xml",
+            "/odm/etc/media_codecs_c2.xml",
+            "/odm/etc/media_codecs.xml",
+            "/vendor/etc/mtk_platform_codecs_config.xml",
+    };
+
+    private static final Pattern CODEC_NAME_TYPE = Pattern.compile(
+            "MediaCodec\\s+name=\"([^\"]+)\"\\s+type=\"([^\"]+)\"",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern MTK_VIDEO_NAME = Pattern.compile(
+            "Video\\s+name=\"([^\"]+)\"\\s+type=\"([^\"]+)\"",
+            Pattern.CASE_INSENSITIVE);
+
     private static boolean isLowEndSnapdragon = false;
     private static boolean isAdreno620 = false;
     private static boolean initialized = false;
+    private static boolean vendorXmlPreferredLoaded = false;
 
     static {
         directSubmitPrefixes = new LinkedList<>();
@@ -309,6 +334,10 @@ public class MediaCodecHelper {
             return;
         }
 
+        // NOTE: do NOT call preferVendorCodecsFromOemXml() here.
+        // It uses isDecoderInList() which requires initialized=true (init-order crash
+        // in 12.2.2-titan / c6089555 Titan OEM codec patch).
+
         // Older Sony ATVs (SVP-DTV15) have broken MediaTek codecs (decoder hangs after rendering the first frame).
         // I know the Fire TV 2 and 3 works, so I'll whitelist Amazon devices which seem to actually be tested.
         // We still have to check Build.MANUFACTURER to catch Amazon Fire tablets.
@@ -412,15 +441,24 @@ public class MediaCodecHelper {
             }
         }
 
+        // Mark initialized BEFORE OEM prefer so isDecoderInList is safe.
         initialized = true;
+
+        // Prefer vendor HW codec names from OEM media_codecs XML (any SoC / MediaTek).
+        // Must run after initialized=true (isDecoderInList guard).
+        preferVendorCodecsFromOemXml();
     }
 
+    // Titan fix 12.2.2-titan.1: allow list probes during initialize()
+    // (preferVendorCodecsFromOemXml -> isDecoderInList before initialized=true).
     private static boolean isDecoderInList(List<String> decoderList, String decoderName) {
-        if (!initialized) {
-            throw new IllegalStateException("MediaCodecHelper must be initialized before use");
+        if (decoderList == null || decoderName == null) {
+            return false;
         }
-
         for (String badPrefix : decoderList) {
+            if (badPrefix == null) {
+                continue;
+            }
             if (decoderName.length() >= badPrefix.length()) {
                 String prefix = decoderName.substring(0, badPrefix.length());
                 if (prefix.equalsIgnoreCase(badPrefix)) {
@@ -428,7 +466,6 @@ public class MediaCodecHelper {
                 }
             }
         }
-        
         return false;
     }
 
@@ -772,10 +809,214 @@ public class MediaCodecHelper {
     private static LinkedList<MediaCodecInfo> getMediaCodecList() {
         LinkedList<MediaCodecInfo> infoList = new LinkedList<>();
 
-        MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
-        Collections.addAll(infoList, mcl.getCodecInfos());
+        // REGULAR first; on some Treble GSIs vendor codecs are flaky right after
+        // codec2 restart — retry a few times before giving up.
+        for (int attempt = 0; attempt < 3; attempt++) {
+            infoList.clear();
+            try {
+                MediaCodecList mcl = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
+                Collections.addAll(infoList, mcl.getCodecInfos());
+            } catch (Exception e) {
+                LimeLog.warning("MediaCodecList.REGULAR failed attempt " + attempt + ": " + e);
+            }
+            if (!infoList.isEmpty()) {
+                break;
+            }
+            try {
+                Thread.sleep(50L * (attempt + 1));
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        // Last resort: ALL_CODECS (includes some secure/soft aliases we still filter)
+        if (infoList.isEmpty()) {
+            try {
+                MediaCodecList mcl = new MediaCodecList(MediaCodecList.ALL_CODECS);
+                Collections.addAll(infoList, mcl.getCodecInfos());
+                LimeLog.warning("MediaCodecList fell back to ALL_CODECS count=" + infoList.size());
+            } catch (Exception e) {
+                LimeLog.warning("MediaCodecList.ALL failed: " + e);
+            }
+        }
 
         return infoList;
+    }
+
+    /**
+     * Load preferred decoder names from vendor/OEM media_codecs XML.
+     * Works for MTK / QTI / etc. whenever the OEM files list HW codecs that
+     * MediaCodecList fails to publish (common on Treble GSI + stock vendor).
+     */
+    private static void preferVendorCodecsFromOemXml() {
+        if (vendorXmlPreferredLoaded) {
+            return;
+        }
+        vendorXmlPreferredLoaded = true;
+        List<String> avc = new ArrayList<>();
+        List<String> hevc = new ArrayList<>();
+        for (String path : VENDOR_CODEC_XML_PATHS) {
+            parseVendorCodecXml(path, avc, hevc);
+        }
+        // Prefer non-secure, non-software vendor names first
+        for (String name : avc) {
+            if (isLikelyHardwareCodecName(name) && !preferredDecoders.contains(name)) {
+                preferredDecoders.add(name);
+                LimeLog.info("OEM XML preferred AVC decoder: " + name);
+            }
+        }
+        for (String name : hevc) {
+            if (isLikelyHardwareCodecName(name) && !preferredDecoders.contains(name)) {
+                preferredDecoders.add(name);
+                LimeLog.info("OEM XML preferred HEVC decoder: " + name);
+            }
+            // Whitelist vendor HEVC prefixes for streaming
+            String lower = name.toLowerCase(Locale.ENGLISH);
+            if (lower.startsWith("c2.mtk") || lower.startsWith("omx.mtk")) {
+                if (!isDecoderInList(whitelistedHevcDecoders, name)) {
+                    whitelistedHevcDecoders.add("c2.mtk");
+                    whitelistedHevcDecoders.add("omx.mtk");
+                }
+            }
+        }
+    }
+
+    private static boolean isLikelyHardwareCodecName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        String n = name.toLowerCase(Locale.ENGLISH);
+        if (n.contains("secure")) {
+            return false;
+        }
+        if (n.startsWith("c2.android") || n.startsWith("omx.google") || n.contains("ffmpeg")) {
+            return false;
+        }
+        // Vendor HW: c2.mtk, c2.qti, c2.exynos, omx.mtk, omx.qcom, ...
+        return n.startsWith("c2.") || n.startsWith("omx.");
+    }
+
+    private static void parseVendorCodecXml(String path, List<String> avcOut, List<String> hevcOut) {
+        File f = new File(path);
+        if (!f.isFile()) {
+            return;
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                Matcher m = CODEC_NAME_TYPE.matcher(line);
+                if (!m.find()) {
+                    m = MTK_VIDEO_NAME.matcher(line);
+                    if (!m.find()) {
+                        continue;
+                    }
+                }
+                String name = m.group(1);
+                String type = m.group(2).toLowerCase(Locale.ENGLISH);
+                if (type.equals("video/avc") || type.equals("video/hevc")) {
+                    if (type.equals("video/avc") && !avcOut.contains(name)) {
+                        avcOut.add(name);
+                    } else if (type.equals("video/hevc") && !hevcOut.contains(name)) {
+                        hevcOut.add(name);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            LimeLog.warning("Failed reading vendor codec XML " + path + ": " + e);
+        }
+    }
+
+    /**
+     * When MediaCodecList is incomplete (GSI only shows software store), try
+     * createByCodecName for OEM-listed / preferred HW names and return CodecInfo.
+     */
+    public static MediaCodecInfo findDecoderByCreateName(String mimeType) {
+        preferVendorCodecsFromOemXml();
+        List<String> candidates = new ArrayList<>(preferredDecoders);
+        // Also re-scan OEM XML for this mime only
+        List<String> avc = new ArrayList<>();
+        List<String> hevc = new ArrayList<>();
+        for (String path : VENDOR_CODEC_XML_PATHS) {
+            parseVendorCodecXml(path, avc, hevc);
+        }
+        if ("video/avc".equalsIgnoreCase(mimeType)) {
+            for (String n : avc) {
+                if (!candidates.contains(n)) candidates.add(n);
+            }
+        } else if ("video/hevc".equalsIgnoreCase(mimeType)) {
+            for (String n : hevc) {
+                if (!candidates.contains(n)) candidates.add(n);
+            }
+        }
+        for (String name : candidates) {
+            if (!isLikelyHardwareCodecName(name)) {
+                continue;
+            }
+            MediaCodecInfo info = tryGetCodecInfoByName(name, mimeType);
+            if (info != null) {
+                LimeLog.info("Bound vendor decoder via createByCodecName: " + name);
+                return info;
+            }
+        }
+        return null;
+    }
+
+    private static MediaCodecInfo tryGetCodecInfoByName(String name, String mimeType) {
+        MediaCodec codec = null;
+        try {
+            codec = MediaCodec.createByCodecName(name);
+            MediaCodecInfo info = codec.getCodecInfo();
+            if (info == null || info.isEncoder()) {
+                return null;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && info.isSoftwareOnly()) {
+                LimeLog.info("createByCodecName returned software-only: " + name);
+                return null;
+            }
+            for (String t : info.getSupportedTypes()) {
+                if (t.equalsIgnoreCase(mimeType)) {
+                    return info;
+                }
+            }
+            // Some vendor infos report empty types until configured — still accept HW name
+            if (isLikelyHardwareCodecName(name)) {
+                return info;
+            }
+        } catch (Exception e) {
+            LimeLog.info("createByCodecName failed for " + name + ": " + e.getMessage());
+        } finally {
+            if (codec != null) {
+                try {
+                    codec.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Last-resort software decoder when no hardware codec can be bound.
+     * Prefer this over a hard "no H.264" dialog; latency will be poor.
+     */
+    public static MediaCodecInfo findFirstDecoderAllowSoftware(String mimeType) {
+        for (MediaCodecInfo codecInfo : getMediaCodecList()) {
+            if (codecInfo.isEncoder()) {
+                continue;
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && codecInfo.isAlias()) {
+                continue;
+            }
+            for (String mime : codecInfo.getSupportedTypes()) {
+                if (!mime.equalsIgnoreCase(mimeType)) {
+                    continue;
+                }
+                LimeLog.warning("Software-fallback decoder choice is " + codecInfo.getName());
+                return codecInfo;
+            }
+        }
+        return null;
     }
     
     @SuppressWarnings("RedundantThrows")

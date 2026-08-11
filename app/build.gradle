@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Release signing: Mobile/.key/key.properties (cool_key_v2). Old cool_key.jks password is lost.
+def keystorePropertiesFile = rootProject.file("../.key/key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     ndkVersion "27.0.12077973"
 
@@ -11,11 +18,25 @@ android {
         minSdk 21
         targetSdk 34
 
-        versionName "12.2"
-        versionCode = 315
+        versionName "12.2.2-titan.1"
+        versionCode = 318
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                // Prefer path next to key.properties (device-workshop/Mobile/.key)
+                def storePath = keystoreProperties['storeFile']
+                def localStore = rootProject.file("../.key/cool_key_v2.jks")
+                storeFile localStore.exists() ? localStore : file(storePath)
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
 
     flavorDimensions.add("root")
@@ -125,6 +146,9 @@ android {
 
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
