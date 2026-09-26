@@ -1,4 +1,6 @@
-# Moonlight Android – headset & keyboard tweaks fork
+# Moonlight Android – Titan 2 line
+
+**Branch `titan` is the Unihertz Titan 2 fork** (`com.limelight.unofficial`, 12.2.2-titan.2-sym-specials). It starts from the headset fork and then carries the Titan decoder and keyboard changes. Origin `master` stays the headset fork (`moonlight_xr_12.2`). Further Titan work lands on `titan`.
 
 **This fork was originally created to fix crashes on Meta Quest devices running v76+ firmware** (caused by Meta removing the GameManager component — see the firmware notes below).
 
@@ -38,8 +40,8 @@ Typical cases:
 - **VR headset considerations**  
   Several options and defensive fixes target Meta Quest and similar headsets (volumetric / 3D multi-window, laser pointer mouse, absolute mouse passthrough). UI details (context menus on long press, window focus, etc.) can differ from a normal phone or tablet. The code guards stale list positions, cross-process service binding (USB driver, etc.), and process-aware takeover.
 
-- **Hardware keyboard devices (e.g. Titan 2)**  
-  Optional input settings help when a physical keyboard is attached or built in. **Local Alt for special characters** (Input Settings; off by default) keeps Alt on the Android side for character composition instead of always forwarding Alt to the remote PC. Remote Alt shortcuts do not work while that option is enabled.
+- **Hardware keyboard (Titan 2)**  
+  **Local Sym specials** is on by default. Sym / Right Alt plus a letter uses the Titan key character map and sends that glyph to the PC. Free Left Alt still goes to the host, so remote Alt shortcuts keep working. Turn the option off to forward Right Alt as well.
 
 - **Controller pointer as mouse (Quest Touch / laser pointer)**  
   Optional setting **“Capture controller pointer as mouse”** (Input Settings; disabled by default).  

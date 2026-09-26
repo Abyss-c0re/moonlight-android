@@ -129,11 +129,42 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int numFramesOut;
 
     private MediaCodecInfo findAvcDecoder() {
+        // 1) MediaCodecList preferred/safe HW
         MediaCodecInfo decoder = MediaCodecHelper.findProbableSafeDecoder("video/avc", MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
+        if (decoder == null) {
+            // Vendor builds often omit High from profileLevels
+            decoder = MediaCodecHelper.findProbableSafeDecoder("video/avc", -1);
+        }
         if (decoder == null) {
             decoder = MediaCodecHelper.findFirstDecoder("video/avc");
         }
+        // 2) OEM media_codecs XML + createByCodecName (GSI incomplete list)
+        if (decoder == null || isSoftwareDecoder(decoder)) {
+            MediaCodecInfo oem = MediaCodecHelper.findDecoderByCreateName("video/avc");
+            if (oem != null) {
+                decoder = oem;
+            }
+        }
+        // 3) Software last resort (better than hard fail; latency will be bad)
+        if (decoder == null) {
+            LimeLog.warning("No HW AVC decoder in list or OEM bind — software fallback");
+            decoder = MediaCodecHelper.findFirstDecoderAllowSoftware("video/avc");
+        }
         return decoder;
+    }
+
+    private static boolean isSoftwareDecoder(MediaCodecInfo info) {
+        if (info == null) {
+            return true;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                return info.isSoftwareOnly();
+            } catch (Exception ignored) {
+            }
+        }
+        String n = info.getName().toLowerCase(java.util.Locale.ENGLISH);
+        return n.startsWith("c2.android") || n.startsWith("omx.google") || n.contains("ffmpeg");
     }
 
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
@@ -229,6 +260,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // some decoders (at least Qualcomm's Snapdragon 805) don't properly report support
         // for even required levels of HEVC.
         MediaCodecInfo hevcDecoderInfo = MediaCodecHelper.findProbableSafeDecoder("video/hevc", -1);
+        if (hevcDecoderInfo == null || isSoftwareDecoder(hevcDecoderInfo)) {
+            MediaCodecInfo oem = MediaCodecHelper.findDecoderByCreateName("video/hevc");
+            if (oem != null) {
+                hevcDecoderInfo = oem;
+            }
+        }
         if (hevcDecoderInfo != null) {
             if (!MediaCodecHelper.decoderIsWhitelistedForHevc(hevcDecoderInfo)) {
                 LimeLog.info("Found HEVC decoder, but it's not whitelisted - "+hevcDecoderInfo.getName());

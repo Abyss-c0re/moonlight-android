@@ -200,6 +200,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private InputCaptureProvider inputCaptureProvider;
     private int modifierFlags = 0;
+    /**
+     * Titan Sym specials: physical Sym is mapped to ALT_RIGHT (or KEYCODE_SYM).
+     * Track RAlt/Sym hold so free ALT_LEFT still reaches the host while Sym
+     * composes via TitanKey.kcm and lands like HID specials.
+     */
+    private boolean localSymSpecialsHeld = false;
     private boolean grabbedInput = true;
     private boolean cursorVisible = false;
     private SharedPreferences.OnSharedPreferenceChangeListener preferenceListener;
@@ -597,6 +603,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
                 .build();
 
+        // Always log requested settings so UI prefs vs negotiated stream are debuggable
+        LimeLog.info("Stream request: " + prefConfig.width + "x" + prefConfig.height
+                + " @" + chosenFrameRate + "fps bitrate=" + prefConfig.bitrate
+                + "kbps format=" + prefConfig.videoFormat
+                + " avc=" + (decoderRenderer.isAvcSupported() ? "yes" : "no")
+                + " hevc=" + (decoderRenderer.isHevcSupported() ? "yes" : "no"));
+
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),
                 new ComputerDetails.AddressTuple(host, port),
@@ -854,6 +867,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         // We can't guarantee the state of modifiers keys which may have
         // lifted while focus was not on us. Clear the modifier state.
         this.modifierFlags = 0;
+        this.localSymSpecialsHeld = false;
 
         // With Android native pointer capture, capture is lost when focus is lost,
         // so it must be requested again when focus is regained.
@@ -1364,8 +1378,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                  androidKeyCode == KeyEvent.KEYCODE_SHIFT_RIGHT) {
             modifierMask = KeyboardPacket.MODIFIER_SHIFT;
         }
-        else if (androidKeyCode == KeyEvent.KEYCODE_ALT_LEFT ||
-                 androidKeyCode == KeyEvent.KEYCODE_ALT_RIGHT) {
+        else if (androidKeyCode == KeyEvent.KEYCODE_ALT_LEFT) {
+            // Free Alt only — Sym/RAlt is local specials, not host Alt.
+            modifierMask = KeyboardPacket.MODIFIER_ALT;
+        }
+        else if (androidKeyCode == KeyEvent.KEYCODE_ALT_RIGHT
+                || androidKeyCode == KeyEvent.KEYCODE_SYM) {
+            if (prefConfig != null && prefConfig.localAltSpecialChars) {
+                localSymSpecialsHeld = down;
+                return true; // never host Alt from Sym
+            }
             modifierMask = KeyboardPacket.MODIFIER_ALT;
         }
         else if (androidKeyCode == KeyEvent.KEYCODE_META_LEFT ||
@@ -1470,36 +1492,43 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (event.isCtrlPressed()) {
             modifier |= KeyboardPacket.MODIFIER_CTRL;
         }
-        // When local Alt mode is on, never report Alt to the host so composed
-        // characters stay on the Android side (see localAltSpecialChars).
-        if (event.isAltPressed() && !prefConfig.localAltSpecialChars) {
+        // Free Left Alt → host. Local Sym (RAlt) never becomes host Alt.
+        if (prefConfig.localAltSpecialChars) {
+            if ((event.getMetaState() & KeyEvent.META_ALT_LEFT_ON) != 0) {
+                modifier |= KeyboardPacket.MODIFIER_ALT;
+            }
+        } else if (event.isAltPressed()) {
             modifier |= KeyboardPacket.MODIFIER_ALT;
         }
         if (event.isMetaPressed()) {
             modifier |= KeyboardPacket.MODIFIER_META;
-        }
-        if (prefConfig.localAltSpecialChars) {
-            modifier &= ~KeyboardPacket.MODIFIER_ALT;
         }
         return modifier;
     }
 
     private byte getModifierState() {
         byte modifier = (byte) modifierFlags;
-        if (prefConfig.localAltSpecialChars) {
-            modifier &= ~KeyboardPacket.MODIFIER_ALT;
-        }
+        // Global flag may include Alt from LAlt tracking; Sym hold never sets it.
         return modifier;
     }
 
+    /** Titan Sym / specials owner (KL maps Sym → ALT_RIGHT). Free Alt is ALT_LEFT. */
+    private static boolean isLocalSymSpecialsModKey(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_ALT_RIGHT
+                || keyCode == KeyEvent.KEYCODE_SYM;
+    }
+
+    private static boolean isFreeAltKeyCode(int keyCode) {
+        return keyCode == KeyEvent.KEYCODE_ALT_LEFT;
+    }
+
     private static boolean isAltKeyCode(int keyCode) {
-        return keyCode == KeyEvent.KEYCODE_ALT_LEFT || keyCode == KeyEvent.KEYCODE_ALT_RIGHT;
+        return isFreeAltKeyCode(keyCode) || isLocalSymSpecialsModKey(keyCode);
     }
 
     /**
-     * When local Alt mode is enabled, prefer Android's Alt-composed unicode
-     * character (hardware keyboard maps, e.g. Titan 2) over forwarding Alt+key
-     * to the remote host.
+     * Titan Sym specials: RAlt/Sym + letter → TitanKey.kcm glyph → host UTF-8
+     * (same glyphs as USB HID specials path). Free LAlt still forwards.
      *
      * @return true if the event was fully handled (caller should return)
      */
@@ -1507,11 +1536,26 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (!prefConfig.localAltSpecialChars) {
             return false;
         }
-        if (!event.isAltPressed() || event.isCtrlPressed() || event.isMetaPressed()) {
+        // Require Sym/RAlt hold — not free Left Alt alone.
+        boolean ralt = localSymSpecialsHeld
+                || (event.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) != 0
+                || event.getKeyCode() == KeyEvent.KEYCODE_SYM;
+        if (!ralt || event.isCtrlPressed() || event.isMetaPressed()) {
             return false;
         }
+        if (isLocalSymSpecialsModKey(event.getKeyCode())) {
+            return true; // bare Sym — already consumed in handleKey*
+        }
 
-        int unicodeChar = event.getUnicodeChar();
+        // Force ralt meta for KCM so getUnicodeChar sees TitanKey ralt: layer
+        // even if EventHub left meta messy.
+        int metaRalt = (event.getMetaState()
+                | KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON)
+                & ~(KeyEvent.META_ALT_LEFT_ON);
+        int unicodeChar = event.getUnicodeChar(metaRalt);
+        if (unicodeChar == 0) {
+            unicodeChar = event.getUnicodeChar();
+        }
         if (unicodeChar == 0 || (unicodeChar & KeyCharacterMap.COMBINING_ACCENT) != 0) {
             return false;
         }
@@ -1520,8 +1564,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             return false;
         }
 
-        // Compare with the same key without Alt. If Alt changes the character,
-        // send the composed glyph as UTF-8 text instead of a remote Alt+key.
         int metaWithoutAlt = event.getMetaState()
                 & ~(KeyEvent.META_ALT_ON | KeyEvent.META_ALT_LEFT_ON | KeyEvent.META_ALT_RIGHT_ON);
         int withoutAlt = event.getUnicodeChar(metaWithoutAlt);
@@ -1530,12 +1572,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             baseCh = 0;
         }
         if (ch == baseCh) {
-            // Alt did not change the glyph; fall through and send the key
-            // without the Alt modifier (stripped in getModifierState).
+            // RAlt did not change glyph — send base letter without host Alt.
             return false;
         }
 
         if (down && event.getRepeatCount() == 0) {
+            // UTF-8 text matches HID specials intent (glyph lands on host).
             conn.sendUtf8Text(String.valueOf((char) ch));
         }
         return true;
@@ -1597,13 +1639,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 return false;
             }
 
-            // Local Alt mode: never forward bare Alt to the host. Still track it
-            // in handleSpecialKeys for Ctrl+Alt+Shift client combos.
-            if (prefConfig.localAltSpecialChars && isAltKeyCode(event.getKeyCode())) {
+            // Local Sym specials: never forward bare RAlt/Sym to the host.
+            // Free LAlt still goes through as remote Alt.
+            if (prefConfig.localAltSpecialChars && isLocalSymSpecialsModKey(event.getKeyCode())) {
+                localSymSpecialsHeld = true;
                 return true;
             }
 
-            // Prefer Android Alt-composed characters over remote Alt+key.
+            // Prefer Titan KCM Sym-composed characters over remote RAlt+key.
             if (tryHandleLocalAltComposedChar(event, true)) {
                 return true;
             }
@@ -1691,11 +1734,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 return false;
             }
 
-            if (prefConfig.localAltSpecialChars && isAltKeyCode(event.getKeyCode())) {
+            if (prefConfig.localAltSpecialChars && isLocalSymSpecialsModKey(event.getKeyCode())) {
+                localSymSpecialsHeld = false;
                 return true;
             }
 
-            // Match key-down: consume composed Alt characters without a remote key up.
+            // Match key-down: consume composed Sym characters without a remote key up.
             if (tryHandleLocalAltComposedChar(event, false)) {
                 return true;
             }

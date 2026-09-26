@@ -208,8 +208,8 @@
     <string name="summary_checkbox_controller_pointer_as_mouse">For VR headsets like Oculus/Meta Quest, continuously update the mouse cursor from the Touch controller laser pointer. The mouse will follow the pointer position while streaming instead of only jumping when the trigger is pressed.</string>
     <string name="title_checkbox_mouse_absolute_passthrough">Absolute mouse passthrough (no pointer capture)</string>
     <string name="summary_checkbox_mouse_absolute_passthrough">The local Android cursor stays visible at all times and directly controls the remote desktop when over the window. Mouse movements and clicks are forwarded as absolute input. No grabbing, releasing, or edge detection needed — simply move the cursor out of the Moonlight window to use other Quest windows or the system UI. Ideal for multi-window desktop use on Quest.</string>
-    <string name="title_checkbox_local_alt_special_chars">Local Alt for special characters</string>
-    <string name="summary_checkbox_local_alt_special_chars">Do not send Alt to the remote PC. Alt+key uses the Android keyboard map for special characters (hardware keyboards such as Titan 2). Remote Alt shortcuts will not work while enabled. Off by default.</string>
+    <string name="title_checkbox_local_alt_special_chars">Local Sym specials (Titan)</string>
+    <string name="summary_checkbox_local_alt_special_chars">Sym / Right Alt + letter uses Titan KCM specials and sends the glyph to the PC (like USB HID). Free Left Alt still goes to the host for shortcuts. On by default on this fork.</string>
 
     <string name="category_on_screen_controls_settings">On-screen Controls Settings</string>
     <string name="title_checkbox_show_onscreen_controls">Show on-screen controls</string>

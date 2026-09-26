@@ -319,14 +319,17 @@ public class NvConnection {
             }
         }
         
-        // If there's a game running, resume it
+        // If there's a game running: always quit+relaunch for the same app so
+        // client resolution/fps/bitrate apply. Sunshine/GFE "resume" keeps the
+        // previous encode session params (users saw settings "do nothing").
         if (h.getCurrentGame(serverInfo) != 0) {
             try {
                 if (h.getCurrentGame(serverInfo) == app.getAppId()) {
-                    if (!h.launchApp(context, "resume", app.getAppId(), context.negotiatedHdr)) {
-                        context.connListener.displayMessage("Failed to resume existing session");
-                        return false;
-                    }
+                    LimeLog.info("Same app already running — quit+launch so stream settings apply ("
+                            + context.negotiatedWidth + "x" + context.negotiatedHeight
+                            + " @" + context.streamConfig.getRefreshRate() + " "
+                            + context.streamConfig.getBitrate() + "kbps)");
+                    return quitAndLaunch(h, context);
                 } else {
                     return quitAndLaunch(h, context);
                 }
@@ -347,9 +350,6 @@ public class NvConnection {
                     throw e;
                 }
             }
-            
-            LimeLog.info("Resumed existing game session");
-            return true;
         }
         else {
             return launchNotRunningApp(h, context);

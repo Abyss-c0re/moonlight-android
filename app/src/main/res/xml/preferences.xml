@@ -158,7 +158,7 @@
             android:key="checkbox_local_alt_special_chars"
             android:title="@string/title_checkbox_local_alt_special_chars"
             android:summary="@string/summary_checkbox_local_alt_special_chars"
-            android:defaultValue="false" />
+            android:defaultValue="true" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_on_screen_controls_settings"
         android:key="category_onscreen_controls">

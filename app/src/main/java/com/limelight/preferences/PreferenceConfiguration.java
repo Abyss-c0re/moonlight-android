@@ -113,7 +113,12 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_GAMEPAD_MOTION_FALLBACK = false;
     public static final boolean DEFAULT_CONTROLLER_POINTER_AS_MOUSE = false;
     public static final boolean DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH = false;
-    public static final boolean DEFAULT_LOCAL_ALT_SPECIAL_CHARS = false;
+    /**
+     * Titan product default ON: Sym/RAlt specials compose on-device (KCM) and
+     * land as host text/chords — matches exclusive HID specials path. Free Alt
+     * (LAlt) still goes to the PC when local mode only treats RAlt/Sym.
+     */
+    public static final boolean DEFAULT_LOCAL_ALT_SPECIAL_CHARS = true;
 
     public static final int FRAME_PACING_MIN_LATENCY = 0;
     public static final int FRAME_PACING_BALANCED = 1;
