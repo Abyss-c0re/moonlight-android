@@ -5,6 +5,7 @@ import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
+import com.limelight.binding.input.TitanDeck;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
@@ -212,6 +213,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean waitingForAllModifiersUp = false;
     private int specialKeyCode = KeyEvent.KEYCODE_UNKNOWN;
     private StreamView streamView;
+    private TitanDeck titanDeck;
     private View mouseBoundsView;
 
     private long lastAbsTouchUpTime = 0;
@@ -311,8 +313,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             @Override
             public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
                 if (key != null && (key.startsWith("checkbox_mouse_") ||
-                                    key.equals("checkbox_controller_pointer_as_mouse"))) {
+                                    key.equals("checkbox_controller_pointer_as_mouse") ||
+                                    key.startsWith("list_titan") ||
+                                    key.startsWith("checkbox_titan"))) {
                     prefConfig = PreferenceConfiguration.readPreferences(Game.this);
+                    if (titanDeck != null && (key.startsWith("list_titan") || key.startsWith("checkbox_titan"))) {
+                        titanDeck.layout(prefConfig);
+                        titanDeck.refreshSession();
+                    }
 
                     if (key.equals("checkbox_mouse_absolute_passthrough") && inputCaptureProvider != null) {
                         if (prefConfig.mouseAbsolutePassthrough) {
@@ -347,6 +355,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         streamView.setOnGenericMotionListener(this);
         streamView.setOnKeyListener(this);
         streamView.setInputCallbacks(this);
+        titanDeck = new TitanDeck(this, streamView);
 
         // Listen for touch events on the background touch view to enable trackpad mode
         // to work on areas outside of the StreamView itself. We use a separate View
@@ -433,6 +442,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
+        com.limelight.utils.LanNetwork.bindForHost(this, host);
         int port = Game.this.getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
         int httpsPort = Game.this.getIntent().getIntExtra(EXTRA_HTTPS_PORT, 0); // 0 is treated as unknown
         int appId = Game.this.getIntent().getIntExtra(EXTRA_APP_ID, StreamConfiguration.INVALID_APP_ID);
@@ -617,6 +627,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator();
+        if (titanDeck != null) {
+            titanDeck.bindSession(conn, keyboardTranslator);
+        }
 
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
@@ -713,6 +726,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (virtualController != null) {
             // Refresh layout of OSC for possible new screen size
             virtualController.refreshLayout();
+        }
+        if (titanDeck != null && prefConfig != null) {
+            titanDeck.layout(prefConfig);
         }
 
         // Hide on-screen overlays in PiP mode
@@ -1081,6 +1097,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // Set the surface to scale based on the aspect ratio of the stream
             streamView.setDesiredAspectRatio((double)prefConfig.width / (double)prefConfig.height);
         }
+        if (titanDeck != null) {
+            titanDeck.layout(prefConfig);
+            streamView.post(() -> {
+                if (titanDeck != null) {
+                    titanDeck.layout(prefConfig);
+                }
+            });
+        }
 
         // Set the desired refresh rate that will get passed into setFrameRate() later
         desiredRefreshRate = displayRefreshRate;
@@ -1157,6 +1181,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        if (titanDeck != null) {
+            titanDeck.destroy();
+            titanDeck = null;
+        }
         super.onDestroy();
 
         // Remove ourselves from the streaming game registry
@@ -1588,6 +1616,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         return handleKeyDown(event) || super.onKeyDown(keyCode, event);
     }
 
+    /** Arrow keys on a real keyboard stay arrows on the host, even if that device also has pad buttons. */
+    private static boolean isKeyboardArrow(KeyEvent event) {
+        int code = event.getKeyCode();
+        if (code != KeyEvent.KEYCODE_DPAD_UP && code != KeyEvent.KEYCODE_DPAD_DOWN
+                && code != KeyEvent.KEYCODE_DPAD_LEFT && code != KeyEvent.KEYCODE_DPAD_RIGHT) {
+            return false;
+        }
+        InputDevice device = event.getDevice();
+        return device != null && device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
     @Override
     public boolean handleKeyDown(KeyEvent event) {
         if (!streamActive) {
@@ -1621,7 +1660,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         boolean handled = false;
 
-        if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+        if (!isKeyboardArrow(event) && ControllerHandler.isGameControllerDevice(event.getDevice())) {
             // Always try the controller handler first, unless it's an alphanumeric keyboard device.
             // Otherwise, controller handler will eat keyboard d-pad events.
             handled = controllerHandler.handleButtonDown(event);
@@ -1717,7 +1756,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         boolean handled = false;
-        if (ControllerHandler.isGameControllerDevice(event.getDevice())) {
+        if (!isKeyboardArrow(event) && ControllerHandler.isGameControllerDevice(event.getDevice())) {
             // Always try the controller handler first, unless it's an alphanumeric keyboard device.
             // Otherwise, controller handler will eat keyboard d-pad events.
             handled = controllerHandler.handleButtonUp(event);
@@ -2664,6 +2703,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             updatePipAutoEnter();
 
             controllerHandler.stop();
+            if (titanDeck != null) {
+                titanDeck.releaseSession();
+            }
 
             // Update GameManager state to indicate we're no longer in game
             UiHelper.notifyStreamEnded(this);

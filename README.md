@@ -1,6 +1,8 @@
 # Moonlight Android – Titan 2 line
 
-**Branch `titan` is the Unihertz Titan 2 fork** (`com.limelight.unofficial`, 12.2.2-titan.2-sym-specials). It starts from the headset fork and then carries the Titan decoder and keyboard changes. Origin `master` stays the headset fork (`moonlight_xr_12.2`). Further Titan work lands on `titan`.
+**Titan-specific tweaks** for the Unihertz Titan 2 (`com.limelight.unofficial`, 12.2.2-titan.8-arrows, branch `titan-deck`). They use the phone’s hardware — side keys, touchpad, keyboard specials — and the empty space above and below a desktop picture on the square screen. `titan` stays the previous Sym-specials line. Origin `master` stays the headset fork.
+
+Cube Flasher option **Moonlight (Titan)** (`WITH_MOONLIGHT=1`, off unless checked) packs this release APK into the ROM as `/system/priv-app/Moonlight`. Build `assembleNonRootRelease` before cooking.
 
 **This fork was originally created to fix crashes on Meta Quest devices running v76+ firmware** (caused by Meta removing the GameManager component — see the firmware notes below).
 
@@ -42,6 +44,9 @@ Typical cases:
 
 - **Hardware keyboard (Titan 2)**  
   **Local Sym specials** is on by default. Sym / Right Alt plus a letter uses the Titan key character map and sends that glyph to the PC. Free Left Alt still goes to the host, so remote Alt shortcuts keep working. Turn the option off to forward Right Alt as well.
+
+- **Titan hardware and the empty bands on the square screen**  
+  A desktop picture does not fill the 1:1 panel. Compact key rows sit in that empty space (above, below, or both). Row height and which rows appear — navigation, modifiers, editing, function keys, symbols — are settings. Glyphs use the same US key list as Atlas and USB HID. While a stream is open, the Titan side keys, touchpad mode, tap and scroll behavior, key repeat, and typing-lock delay follow the Titan Controls API and are put back when the stream ends. The app uses the system theme. LAN connections are bound to Wi-Fi so mobile data does not steal them.
 
 - **Controller pointer as mouse (Quest Touch / laser pointer)**  
   Optional setting **“Capture controller pointer as mouse”** (Input Settings; disabled by default).  

@@ -54,6 +54,7 @@
         android:layout_alignParentLeft="true"
         android:layout_alignParentTop="true"
         android:src="@drawable/ic_settings"
+        android:tint="?android:attr/textColorPrimary"
         style="?android:attr/borderlessButtonStyle"/>
 
     <ImageButton
@@ -67,6 +68,7 @@
         android:layout_alignParentLeft="true"
         android:layout_below="@id/settingsButton"
         android:src="@drawable/ic_help"
+        android:tint="?android:attr/textColorPrimary"
         style="?android:attr/borderlessButtonStyle"/>
 
     <ImageButton
@@ -79,6 +81,7 @@
         android:layout_alignParentLeft="true"
         android:layout_below="@id/helpButton"
         android:src="@drawable/ic_add"
+        android:tint="?android:attr/textColorPrimary"
         style="?android:attr/borderlessButtonStyle"/>
 
 </RelativeLayout>

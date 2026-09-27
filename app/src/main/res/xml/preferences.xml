@@ -160,6 +160,139 @@
             android:summary="@string/summary_checkbox_local_alt_special_chars"
             android:defaultValue="true" />
     </PreferenceCategory>
+    <PreferenceCategory android:title="@string/category_titan_deck"
+        android:key="category_titan_deck">
+        <ListPreference
+            android:key="list_titan_deck_panels"
+            android:title="@string/title_titan_deck_panels"
+            android:summary="@string/summary_titan_deck_panels"
+            android:entries="@array/titan_deck_panel_names"
+            android:entryValues="@array/titan_deck_panel_values"
+            android:defaultValue="auto" />
+        <ListPreference
+            android:key="list_titan_deck_height"
+            android:title="@string/title_titan_deck_height"
+            android:summary="@string/summary_titan_deck_height"
+            android:entries="@array/titan_deck_height_names"
+            android:entryValues="@array/titan_deck_height_values"
+            android:defaultValue="44" />
+        <CheckBoxPreference
+            android:key="checkbox_titan_deck_nav"
+            android:title="@string/title_titan_deck_nav"
+            android:summary="@string/summary_titan_deck_nav"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="checkbox_titan_deck_mods"
+            android:title="@string/title_titan_deck_mods"
+            android:summary="@string/summary_titan_deck_mods"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="checkbox_titan_deck_edit"
+            android:title="@string/title_titan_deck_edit"
+            android:summary="@string/summary_titan_deck_edit"
+            android:defaultValue="true" />
+        <CheckBoxPreference
+            android:key="checkbox_titan_deck_fn"
+            android:title="@string/title_titan_deck_fn"
+            android:summary="@string/summary_titan_deck_fn"
+            android:defaultValue="false" />
+        <CheckBoxPreference
+            android:key="checkbox_titan_deck_symbols"
+            android:title="@string/title_titan_deck_symbols"
+            android:summary="@string/summary_titan_deck_symbols"
+            android:defaultValue="true" />
+        <ListPreference
+            android:key="list_titan_pad_mode"
+            android:title="@string/title_titan_pad_mode"
+            android:summary="@string/summary_titan_pad_mode"
+            android:entries="@array/titan_pad_mode_names"
+            android:entryValues="@array/titan_pad_mode_values"
+            android:defaultValue="leave" />
+        <ListPreference
+            android:key="list_titan_dbltap"
+            android:title="@string/title_titan_dbltap"
+            android:summary="@string/summary_titan_dbltap"
+            android:entries="@array/titan_dbltap_names"
+            android:entryValues="@array/titan_dbltap_values"
+            android:defaultValue="leave" />
+        <ListPreference
+            android:key="list_titan_tap_click"
+            android:title="@string/title_titan_tap_click"
+            android:summary="@string/summary_titan_tap_click"
+            android:entries="@array/titan_flag_names"
+            android:entryValues="@array/titan_flag_values"
+            android:defaultValue="leave" />
+        <ListPreference
+            android:key="list_titan_long_click"
+            android:title="@string/title_titan_long_click"
+            android:summary="@string/summary_titan_long_click"
+            android:entries="@array/titan_flag_names"
+            android:entryValues="@array/titan_flag_values"
+            android:defaultValue="leave" />
+        <ListPreference
+            android:key="list_titan_scroll"
+            android:title="@string/title_titan_scroll"
+            android:summary="@string/summary_titan_scroll"
+            android:entries="@array/titan_flag_names"
+            android:entryValues="@array/titan_flag_values"
+            android:defaultValue="leave" />
+        <ListPreference
+            android:key="list_titan_key_repeat"
+            android:title="@string/title_titan_key_repeat"
+            android:summary="@string/summary_titan_key_repeat"
+            android:entries="@array/titan_repeat_names"
+            android:entryValues="@array/titan_repeat_values"
+            android:defaultValue="system" />
+        <ListPreference
+            android:key="list_titan_typing_lock_ms"
+            android:title="@string/title_titan_typing_lock"
+            android:summary="@string/summary_titan_typing_lock"
+            android:entries="@array/titan_typing_lock_names"
+            android:entryValues="@array/titan_typing_lock_values"
+            android:defaultValue="leave" />
+        <ListPreference
+            android:key="list_titan_side_short"
+            android:title="@string/title_titan_side_short"
+            android:summary="@string/summary_titan_side_key"
+            android:entries="@array/titan_key_action_names"
+            android:entryValues="@array/titan_key_action_values"
+            android:defaultValue="mouse:left" />
+        <ListPreference
+            android:key="list_titan_side_long"
+            android:title="@string/title_titan_side_long"
+            android:summary="@string/summary_titan_side_key"
+            android:entries="@array/titan_key_action_names"
+            android:entryValues="@array/titan_key_action_values"
+            android:defaultValue="mouse:right" />
+        <ListPreference
+            android:key="list_titan_side_double"
+            android:title="@string/title_titan_side_double"
+            android:summary="@string/summary_titan_side_key"
+            android:entries="@array/titan_key_action_names"
+            android:entryValues="@array/titan_key_action_values"
+            android:defaultValue="default" />
+        <ListPreference
+            android:key="list_titan_side2_short"
+            android:title="@string/title_titan_side2_short"
+            android:summary="@string/summary_titan_side_key"
+            android:entries="@array/titan_key_action_names"
+            android:entryValues="@array/titan_key_action_values"
+            android:defaultValue="mouse:middle" />
+        <ListPreference
+            android:key="list_titan_side2_long"
+            android:title="@string/title_titan_side2_long"
+            android:summary="@string/summary_titan_side_key"
+            android:entries="@array/titan_key_action_names"
+            android:entryValues="@array/titan_key_action_values"
+            android:defaultValue="host:esc" />
+        <ListPreference
+            android:key="list_titan_side2_double"
+            android:title="@string/title_titan_side2_double"
+            android:summary="@string/summary_titan_side_key"
+            android:entries="@array/titan_key_action_names"
+            android:entryValues="@array/titan_key_action_values"
+            android:defaultValue="default" />
+    </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_on_screen_controls_settings"
         android:key="category_onscreen_controls">
         <CheckBoxPreference

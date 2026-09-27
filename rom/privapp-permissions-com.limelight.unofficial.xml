@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- System priv-app whitelist. Package matches the nonRoot release id. -->
+<permissions>
+    <privapp-permissions package="com.limelight.unofficial">
+        <permission name="com.titanus2.permission.USE_TITAN2_API"/>
+        <permission name="android.permission.WRITE_SECURE_SETTINGS"/>
+    </privapp-permissions>
+</permissions>

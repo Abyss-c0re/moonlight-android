@@ -543,6 +543,7 @@ public class ComputerManagerService extends Service {
 
     private ComputerDetails tryPollIp(ComputerDetails details, ComputerDetails.AddressTuple address) {
         try {
+            com.limelight.utils.LanNetwork.bindForHost(this, address.address);
             // If the current address's port number matches the active address's port number, we can also assume
             // the HTTPS port will also match. This assumption is currently safe because Sunshine sets all ports
             // as offsets from the base HTTP port and doesn't allow custom HttpsPort responses for WAN vs LAN.

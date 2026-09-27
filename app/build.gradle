@@ -18,8 +18,8 @@ android {
         minSdk 21
         targetSdk 34
 
-        versionName "12.2.2-titan.2-sym-specials"
-        versionCode = 319
+        versionName "12.2.2-titan.8-arrows"
+        versionCode = 325
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'
@@ -149,6 +149,22 @@ android {
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }
+        }
+    }
+
+    def titanApiDir = rootProject.file("../../products/titanus2/apps/titan2_api/src")
+    if (!titanApiDir.isDirectory()) {
+        def fromEnv = System.getenv("TITAN2_ROOT")
+        if (fromEnv != null) {
+            titanApiDir = file("${fromEnv}/apps/titan2_api/src")
+        }
+    }
+    if (!new File(titanApiDir, "com/titanus2/api/Titan2Client.java").isFile()) {
+        throw new GradleException("Titan2 API sources missing at ${titanApiDir}. Set TITAN2_ROOT.")
+    }
+    sourceSets {
+        main {
+            java.srcDir(titanApiDir)
         }
     }
 

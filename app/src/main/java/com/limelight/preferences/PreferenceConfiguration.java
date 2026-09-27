@@ -71,6 +71,26 @@ public class PreferenceConfiguration {
     public static final String CONTROLLER_POINTER_AS_MOUSE_PREF_STRING = "checkbox_controller_pointer_as_mouse";
     public static final String MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING = "checkbox_mouse_absolute_passthrough";
     public static final String LOCAL_ALT_SPECIAL_CHARS_PREF_STRING = "checkbox_local_alt_special_chars";
+    public static final String TITAN_DECK_PANELS_PREF = "list_titan_deck_panels";
+    public static final String TITAN_DECK_HEIGHT_PREF = "list_titan_deck_height";
+    public static final String TITAN_DECK_NAV_PREF = "checkbox_titan_deck_nav";
+    public static final String TITAN_DECK_MODS_PREF = "checkbox_titan_deck_mods";
+    public static final String TITAN_DECK_FN_PREF = "checkbox_titan_deck_fn";
+    public static final String TITAN_DECK_EDIT_PREF = "checkbox_titan_deck_edit";
+    public static final String TITAN_DECK_SYMBOLS_PREF = "checkbox_titan_deck_symbols";
+    public static final String TITAN_PAD_MODE_PREF = "list_titan_pad_mode";
+    public static final String TITAN_DBLTAP_PREF = "list_titan_dbltap";
+    public static final String TITAN_TAP_CLICK_PREF = "list_titan_tap_click";
+    public static final String TITAN_LONG_CLICK_PREF = "list_titan_long_click";
+    public static final String TITAN_SCROLL_PREF = "list_titan_scroll";
+    public static final String TITAN_KEY_REPEAT_PREF = "list_titan_key_repeat";
+    public static final String TITAN_TYPING_LOCK_PREF = "list_titan_typing_lock_ms";
+    public static final String TITAN_SIDE_SHORT_PREF = "list_titan_side_short";
+    public static final String TITAN_SIDE_LONG_PREF = "list_titan_side_long";
+    public static final String TITAN_SIDE_DOUBLE_PREF = "list_titan_side_double";
+    public static final String TITAN_SIDE2_SHORT_PREF = "list_titan_side2_short";
+    public static final String TITAN_SIDE2_LONG_PREF = "list_titan_side2_long";
+    public static final String TITAN_SIDE2_DOUBLE_PREF = "list_titan_side2_double";
 
     static final String DEFAULT_RESOLUTION = "1280x720";
     static final String DEFAULT_FPS = "60";
@@ -119,6 +139,11 @@ public class PreferenceConfiguration {
      * (LAlt) still goes to the PC when local mode only treats RAlt/Sym.
      */
     public static final boolean DEFAULT_LOCAL_ALT_SPECIAL_CHARS = true;
+    public static final String DEFAULT_TITAN_DECK_PANELS = "auto";
+    public static final String DEFAULT_TITAN_DECK_HEIGHT = "44";
+    public static final String DEFAULT_TITAN_PAD_MODE = "leave";
+    public static final String DEFAULT_TITAN_LEAVE = "leave";
+    public static final String DEFAULT_TITAN_REPEAT = "system";
 
     public static final int FRAME_PACING_MIN_LATENCY = 0;
     public static final int FRAME_PACING_BALANCED = 1;
@@ -169,6 +194,26 @@ public class PreferenceConfiguration {
     public boolean controllerPointerAsMouse;
     public boolean mouseAbsolutePassthrough;
     public boolean localAltSpecialChars;
+    public String titanDeckPanels;
+    public String titanDeckHeight;
+    public boolean titanDeckNav;
+    public boolean titanDeckMods;
+    public boolean titanDeckFn;
+    public boolean titanDeckEdit;
+    public boolean titanDeckSymbols;
+    public String titanPadMode;
+    public String titanDbltap;
+    public String titanTapClick;
+    public String titanLongClick;
+    public String titanScroll;
+    public String titanKeyRepeat;
+    public String titanTypingLockMs;
+    public String titanSideShort;
+    public String titanSideLong;
+    public String titanSideDouble;
+    public String titanSide2Short;
+    public String titanSide2Long;
+    public String titanSide2Double;
 
     public static boolean isNativeResolution(int width, int height) {
         // It's not a native resolution if it matches an existing resolution option
@@ -618,6 +663,26 @@ public class PreferenceConfiguration {
         config.controllerPointerAsMouse = prefs.getBoolean(CONTROLLER_POINTER_AS_MOUSE_PREF_STRING, DEFAULT_CONTROLLER_POINTER_AS_MOUSE);
         config.mouseAbsolutePassthrough = prefs.getBoolean(MOUSE_ABSOLUTE_PASSTHROUGH_PREF_STRING, DEFAULT_MOUSE_ABSOLUTE_PASSTHROUGH);
         config.localAltSpecialChars = prefs.getBoolean(LOCAL_ALT_SPECIAL_CHARS_PREF_STRING, DEFAULT_LOCAL_ALT_SPECIAL_CHARS);
+        config.titanDeckPanels = prefs.getString(TITAN_DECK_PANELS_PREF, DEFAULT_TITAN_DECK_PANELS);
+        config.titanDeckHeight = prefs.getString(TITAN_DECK_HEIGHT_PREF, DEFAULT_TITAN_DECK_HEIGHT);
+        config.titanDeckNav = prefs.getBoolean(TITAN_DECK_NAV_PREF, true);
+        config.titanDeckMods = prefs.getBoolean(TITAN_DECK_MODS_PREF, true);
+        config.titanDeckFn = prefs.getBoolean(TITAN_DECK_FN_PREF, false);
+        config.titanDeckEdit = prefs.getBoolean(TITAN_DECK_EDIT_PREF, true);
+        config.titanDeckSymbols = prefs.getBoolean(TITAN_DECK_SYMBOLS_PREF, true);
+        config.titanPadMode = prefs.getString(TITAN_PAD_MODE_PREF, DEFAULT_TITAN_PAD_MODE);
+        config.titanDbltap = prefs.getString(TITAN_DBLTAP_PREF, DEFAULT_TITAN_LEAVE);
+        config.titanTapClick = prefs.getString(TITAN_TAP_CLICK_PREF, DEFAULT_TITAN_LEAVE);
+        config.titanLongClick = prefs.getString(TITAN_LONG_CLICK_PREF, DEFAULT_TITAN_LEAVE);
+        config.titanScroll = prefs.getString(TITAN_SCROLL_PREF, DEFAULT_TITAN_LEAVE);
+        config.titanKeyRepeat = prefs.getString(TITAN_KEY_REPEAT_PREF, DEFAULT_TITAN_REPEAT);
+        config.titanTypingLockMs = prefs.getString(TITAN_TYPING_LOCK_PREF, DEFAULT_TITAN_LEAVE);
+        config.titanSideShort = prefs.getString(TITAN_SIDE_SHORT_PREF, "mouse:left");
+        config.titanSideLong = prefs.getString(TITAN_SIDE_LONG_PREF, "mouse:right");
+        config.titanSideDouble = prefs.getString(TITAN_SIDE_DOUBLE_PREF, "default");
+        config.titanSide2Short = prefs.getString(TITAN_SIDE2_SHORT_PREF, "mouse:middle");
+        config.titanSide2Long = prefs.getString(TITAN_SIDE2_LONG_PREF, "host:esc");
+        config.titanSide2Double = prefs.getString(TITAN_SIDE2_DOUBLE_PREF, "default");
 
         return config;
     }

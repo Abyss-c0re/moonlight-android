@@ -24,6 +24,7 @@
         android:layout_below="@id/grid_overlay"
         android:layout_margin="5dp"
         android:gravity="center"
-        android:textSize="18sp">
+        android:textColor="?android:attr/textColorPrimary"
+        android:textSize="16sp">
     </TextView>
 </RelativeLayout>

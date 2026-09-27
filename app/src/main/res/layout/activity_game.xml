@@ -31,8 +31,9 @@
         android:layout_marginTop="10dp"
         android:layout_gravity="left"
         android:textAppearance="?android:attr/textAppearanceSmall"
+        android:textColor="#F2F2F2"
         android:gravity="left"
-        android:background="#80000000"
+        android:background="#66000000"
         android:preferKeepClear="true"
         android:visibility="gone" />
 
@@ -45,8 +46,9 @@
         android:layout_marginTop="10dp"
         android:layout_gravity="right"
         android:textAppearance="?android:attr/textAppearanceLarge"
+        android:textColor="#F2F2F2"
         android:gravity="right"
-        android:background="#80000000"
+        android:background="#66000000"
         android:preferKeepClear="true"
         android:visibility="gone" />
 

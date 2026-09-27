@@ -1,5 +1,7 @@
 package com.limelight.preferences;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -12,11 +14,14 @@ import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import org.xmlpull.v1.XmlPullParserException;
+
 import com.limelight.binding.PlatformBinding;
 import com.limelight.computers.ComputerManagerService;
 import com.limelight.R;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvHTTP;
+import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.ServerHelper;
@@ -31,6 +36,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -41,12 +47,19 @@ import android.widget.Toast;
 public class AddComputerManually extends Activity {
     private TextView hostText;
     private ComputerManagerService.ComputerManagerBinder managerBinder;
+    private String presetAddress;
+    private boolean wantPair;
     private final LinkedBlockingQueue<String> computersToAdd = new LinkedBlockingQueue<>();
     private Thread addThread;
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, final IBinder binder) {
             managerBinder = ((ComputerManagerService.ComputerManagerBinder)binder);
             startAddThread();
+            if (presetAddress != null && !presetAddress.trim().isEmpty()) {
+                String addr = presetAddress.trim();
+                presetAddress = null;
+                computersToAdd.add(addr);
+            }
         }
 
         public void onServiceDisconnected(ComponentName className) {
@@ -125,12 +138,12 @@ public class AddComputerManually extends Activity {
         boolean invalidInput = false;
         boolean success;
         int portTestResult;
+        ComputerDetails details = new ComputerDetails();
 
         SpinnerDialog dialog = SpinnerDialog.displayDialog(this, getResources().getString(R.string.title_add_pc),
             getResources().getString(R.string.msg_add_pc), false);
 
         try {
-            ComputerDetails details = new ComputerDetails();
 
             // Check if we parsed a host address successfully
             URI uri = parseRawUserInputToUri(rawUserInput);
@@ -144,6 +157,7 @@ public class AddComputerManually extends Activity {
                 }
 
                 details.manualAddress = new ComputerDetails.AddressTuple(host, port);
+                com.limelight.utils.LanNetwork.bindForHost(AddComputerManually.this, host);
                 success = managerBinder.addComputerBlocking(details);
                 if (!success){
                     wrongSiteLocal = isWrongSubnetSiteLocalAddress(host);
@@ -194,6 +208,9 @@ public class AddComputerManually extends Activity {
             Dialog.displayDialog(this, getResources().getString(R.string.conn_error_title), dialogText, false);
         }
         else {
+            if (wantPair) {
+                pairNow(details);
+            }
             AddComputerManually.this.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
@@ -270,11 +287,23 @@ public class AddComputerManually extends Activity {
 
         UiHelper.setLocale(this);
 
+        Intent launch = getIntent();
+        if (launch != null) {
+            presetAddress = launch.getStringExtra("address");
+            if (presetAddress == null) {
+                presetAddress = launch.getStringExtra("host");
+            }
+            wantPair = launch.getBooleanExtra("pair", false);
+        }
+
         setContentView(R.layout.activity_add_computer_manually);
 
         UiHelper.notifyNewRootView(this);
 
         this.hostText = findViewById(R.id.hostTextView);
+        if (presetAddress != null) {
+            hostText.setText(presetAddress);
+        }
         hostText.setImeOptions(EditorInfo.IME_ACTION_DONE);
         hostText.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
@@ -306,6 +335,57 @@ public class AddComputerManually extends Activity {
         // Bind to the ComputerManager service
         bindService(new Intent(AddComputerManually.this,
                     ComputerManagerService.class), serviceConnection, Service.BIND_AUTO_CREATE);
+    }
+
+    /**
+     * Pair with the PC just added. The PIN is logged as {@code MoonlightPair}
+     * so a host script can submit it to Sunshine while this call blocks.
+     */
+    private void pairNow(ComputerDetails computer) {
+        if (managerBinder == null || computer == null || computer.activeAddress == null) {
+            Log.i("MoonlightPair", "RESULT offline");
+            return;
+        }
+        try {
+            NvHTTP httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer),
+                    computer.httpsPort, managerBinder.getUniqueId(), computer.serverCert,
+                    PlatformBinding.getCryptoProvider(this));
+            if (httpConn.getPairState() == PairingManager.PairState.PAIRED) {
+                Log.i("MoonlightPair", "RESULT paired");
+                return;
+            }
+            String pin = PairingManager.generatePinString();
+            Log.i("MoonlightPair", "PIN " + pin);
+            writePin(pin);
+            Dialog.displayDialog(this, getResources().getString(R.string.pair_pairing_title),
+                    getResources().getString(R.string.pair_pairing_msg) + " " + pin, false);
+            PairingManager pm = httpConn.getPairingManager();
+            PairingManager.PairState state = pm.pair(httpConn.getServerInfo(true), pin);
+            Log.i("MoonlightPair", "RESULT " + state);
+            if (state == PairingManager.PairState.PAIRED && computer.uuid != null) {
+                ComputerDetails stored = managerBinder.getComputer(computer.uuid);
+                if (stored != null) {
+                    stored.serverCert = pm.getPairedCert();
+                }
+                managerBinder.invalidateStateForComputer(computer.uuid);
+            }
+        } catch (IOException | XmlPullParserException e) {
+            Log.i("MoonlightPair", "RESULT fail " + e.getMessage());
+        } finally {
+            Dialog.closeDialogs();
+        }
+    }
+
+    private void writePin(String pin) {
+        File[] dirs = new File[] { getExternalFilesDir(null), getCacheDir() };
+        for (File dir : dirs) {
+            if (dir == null) {
+                continue;
+            }
+            try (FileWriter writer = new FileWriter(new File(dir, "pair_pin.txt"))) {
+                writer.write(pin);
+            } catch (IOException ignored) {}
+        }
     }
 
     // Returns true if the event should be eaten

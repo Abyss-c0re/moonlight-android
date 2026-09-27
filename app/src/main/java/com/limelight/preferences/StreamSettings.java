@@ -28,6 +28,7 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 
 import com.limelight.LimeLog;
+import com.limelight.binding.input.TitanDeck;
 import com.limelight.PcView;
 import com.limelight.R;
 import com.limelight.binding.video.MediaCodecHelper;
@@ -65,6 +66,16 @@ public class StreamSettings extends Activity {
         setContentView(R.layout.activity_stream_settings);
 
         UiHelper.notifyNewRootView(this);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        new Thread(() -> {
+            try {
+                TitanDeck.publishProfile(StreamSettings.this);
+            } catch (Exception ignored) {}
+        }, "titan-deck-profile").start();
     }
 
     @Override
