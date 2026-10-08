@@ -76,8 +76,10 @@ public class PreferenceConfiguration {
     public static final String TITAN_DECK_NAV_PREF = "checkbox_titan_deck_nav";
     public static final String TITAN_DECK_MODS_PREF = "checkbox_titan_deck_mods";
     public static final String TITAN_DECK_FN_PREF = "checkbox_titan_deck_fn";
+    public static final String TITAN_DECK_FN_PLACE_PREF = "list_titan_deck_fn_place";
     public static final String TITAN_DECK_EDIT_PREF = "checkbox_titan_deck_edit";
     public static final String TITAN_DECK_SYMBOLS_PREF = "checkbox_titan_deck_symbols";
+    public static final String TITAN_DECK_SYMBOL_SET_PREF = "list_titan_deck_symbol_set";
     public static final String TITAN_PAD_MODE_PREF = "list_titan_pad_mode";
     public static final String TITAN_DBLTAP_PREF = "list_titan_dbltap";
     public static final String TITAN_TAP_CLICK_PREF = "list_titan_tap_click";
@@ -141,6 +143,8 @@ public class PreferenceConfiguration {
     public static final boolean DEFAULT_LOCAL_ALT_SPECIAL_CHARS = true;
     public static final String DEFAULT_TITAN_DECK_PANELS = "auto";
     public static final String DEFAULT_TITAN_DECK_HEIGHT = "44";
+    public static final String DEFAULT_TITAN_FN_PLACE = "top";
+    public static final String DEFAULT_TITAN_SYMBOL_SET = "extra";
     public static final String DEFAULT_TITAN_PAD_MODE = "leave";
     public static final String DEFAULT_TITAN_LEAVE = "leave";
     public static final String DEFAULT_TITAN_REPEAT = "system";
@@ -199,8 +203,10 @@ public class PreferenceConfiguration {
     public boolean titanDeckNav;
     public boolean titanDeckMods;
     public boolean titanDeckFn;
+    public String titanDeckFnPlace;
     public boolean titanDeckEdit;
     public boolean titanDeckSymbols;
+    public String titanDeckSymbolSet;
     public String titanPadMode;
     public String titanDbltap;
     public String titanTapClick;
@@ -667,9 +673,12 @@ public class PreferenceConfiguration {
         config.titanDeckHeight = prefs.getString(TITAN_DECK_HEIGHT_PREF, DEFAULT_TITAN_DECK_HEIGHT);
         config.titanDeckNav = prefs.getBoolean(TITAN_DECK_NAV_PREF, true);
         config.titanDeckMods = prefs.getBoolean(TITAN_DECK_MODS_PREF, true);
-        config.titanDeckFn = prefs.getBoolean(TITAN_DECK_FN_PREF, false);
+        config.titanDeckFn = prefs.getBoolean(TITAN_DECK_FN_PREF, true);
+        config.titanDeckFnPlace = prefs.getString(TITAN_DECK_FN_PLACE_PREF, DEFAULT_TITAN_FN_PLACE);
         config.titanDeckEdit = prefs.getBoolean(TITAN_DECK_EDIT_PREF, true);
         config.titanDeckSymbols = prefs.getBoolean(TITAN_DECK_SYMBOLS_PREF, true);
+        config.titanDeckSymbolSet = prefs.getString(TITAN_DECK_SYMBOL_SET_PREF, DEFAULT_TITAN_SYMBOL_SET);
+        com.limelight.binding.input.TitanShortcuts.migrate(context);
         config.titanPadMode = prefs.getString(TITAN_PAD_MODE_PREF, DEFAULT_TITAN_PAD_MODE);
         config.titanDbltap = prefs.getString(TITAN_DBLTAP_PREF, DEFAULT_TITAN_LEAVE);
         config.titanTapClick = prefs.getString(TITAN_TAP_CLICK_PREF, DEFAULT_TITAN_LEAVE);
@@ -677,11 +686,11 @@ public class PreferenceConfiguration {
         config.titanScroll = prefs.getString(TITAN_SCROLL_PREF, DEFAULT_TITAN_LEAVE);
         config.titanKeyRepeat = prefs.getString(TITAN_KEY_REPEAT_PREF, DEFAULT_TITAN_REPEAT);
         config.titanTypingLockMs = prefs.getString(TITAN_TYPING_LOCK_PREF, DEFAULT_TITAN_LEAVE);
-        config.titanSideShort = prefs.getString(TITAN_SIDE_SHORT_PREF, "mouse:left");
-        config.titanSideLong = prefs.getString(TITAN_SIDE_LONG_PREF, "mouse:right");
+        config.titanSideShort = prefs.getString(TITAN_SIDE_SHORT_PREF, "mouse:scroll_down");
+        config.titanSideLong = prefs.getString(TITAN_SIDE_LONG_PREF, "mouse:scroll_down");
         config.titanSideDouble = prefs.getString(TITAN_SIDE_DOUBLE_PREF, "default");
-        config.titanSide2Short = prefs.getString(TITAN_SIDE2_SHORT_PREF, "mouse:middle");
-        config.titanSide2Long = prefs.getString(TITAN_SIDE2_LONG_PREF, "host:esc");
+        config.titanSide2Short = prefs.getString(TITAN_SIDE2_SHORT_PREF, "mouse:scroll_up");
+        config.titanSide2Long = prefs.getString(TITAN_SIDE2_LONG_PREF, "mouse:scroll_up");
         config.titanSide2Double = prefs.getString(TITAN_SIDE2_DOUBLE_PREF, "default");
 
         return config;

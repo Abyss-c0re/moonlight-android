@@ -6,6 +6,7 @@ import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.TitanDeck;
+import com.limelight.binding.input.TitanHostKeys;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
@@ -37,6 +38,7 @@ import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
+import com.titanus2.api.KeyGlyphs;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -315,9 +317,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (key != null && (key.startsWith("checkbox_mouse_") ||
                                     key.equals("checkbox_controller_pointer_as_mouse") ||
                                     key.startsWith("list_titan") ||
-                                    key.startsWith("checkbox_titan"))) {
+                                    key.startsWith("checkbox_titan") ||
+                                    "titan_shortcut_extra".equals(key))) {
                     prefConfig = PreferenceConfiguration.readPreferences(Game.this);
-                    if (titanDeck != null && (key.startsWith("list_titan") || key.startsWith("checkbox_titan"))) {
+                    if (titanDeck != null && (key.startsWith("list_titan")
+                            || key.startsWith("checkbox_titan")
+                            || "titan_shortcut_extra".equals(key))) {
                         titanDeck.layout(prefConfig);
                         titanDeck.refreshSession();
                     }
@@ -1412,11 +1417,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
         else if (androidKeyCode == KeyEvent.KEYCODE_ALT_RIGHT
                 || androidKeyCode == KeyEvent.KEYCODE_SYM) {
-            if (prefConfig != null && prefConfig.localAltSpecialChars) {
-                localSymSpecialsHeld = down;
-                return true; // never host Alt from Sym
-            }
-            modifierMask = KeyboardPacket.MODIFIER_ALT;
+            localSymSpecialsHeld = down;
+            return true; // Sym is the Titan layer, never host Alt
         }
         else if (androidKeyCode == KeyEvent.KEYCODE_META_LEFT ||
                 androidKeyCode == KeyEvent.KEYCODE_META_RIGHT) {
@@ -1520,12 +1522,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (event.isCtrlPressed()) {
             modifier |= KeyboardPacket.MODIFIER_CTRL;
         }
-        // Free Left Alt → host. Local Sym (RAlt) never becomes host Alt.
-        if (prefConfig.localAltSpecialChars) {
-            if ((event.getMetaState() & KeyEvent.META_ALT_LEFT_ON) != 0) {
-                modifier |= KeyboardPacket.MODIFIER_ALT;
-            }
-        } else if (event.isAltPressed()) {
+        // Free Left Alt → host. Sym / Right Alt never becomes host Alt.
+        if ((event.getMetaState() & KeyEvent.META_ALT_LEFT_ON) != 0
+                || event.getKeyCode() == KeyEvent.KEYCODE_ALT_LEFT) {
             modifier |= KeyboardPacket.MODIFIER_ALT;
         }
         if (event.isMetaPressed()) {
@@ -1555,58 +1554,40 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     /**
-     * Titan Sym specials: RAlt/Sym + letter → TitanKey.kcm glyph → host UTF-8
-     * (same glyphs as USB HID specials path). Free LAlt still forwards.
+     * Titan Sym layer. The glyph comes from the shared keyboard map, with
+     * that glyph's own Shift and no event Shift stacked on top. A key that
+     * is not on the layer is swallowed so it cannot leave as host Alt+letter.
+     * Free Left Alt still forwards.
      *
      * @return true if the event was fully handled (caller should return)
      */
     private boolean tryHandleLocalAltComposedChar(KeyEvent event, boolean down) {
-        if (!prefConfig.localAltSpecialChars) {
-            return false;
-        }
-        // Require Sym/RAlt hold — not free Left Alt alone.
         boolean ralt = localSymSpecialsHeld
                 || (event.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) != 0
                 || event.getKeyCode() == KeyEvent.KEYCODE_SYM;
-        if (!ralt || event.isCtrlPressed() || event.isMetaPressed()) {
-            return false;
-        }
-        if (isLocalSymSpecialsModKey(event.getKeyCode())) {
-            return true; // bare Sym — already consumed in handleKey*
-        }
+        if (!ralt) return false;
+        if (isLocalSymSpecialsModKey(event.getKeyCode())) return true;
 
-        // Force ralt meta for KCM so getUnicodeChar sees TitanKey ralt: layer
-        // even if EventHub left meta messy.
-        int metaRalt = (event.getMetaState()
-                | KeyEvent.META_ALT_ON | KeyEvent.META_ALT_RIGHT_ON)
-                & ~(KeyEvent.META_ALT_LEFT_ON);
-        int unicodeChar = event.getUnicodeChar(metaRalt);
-        if (unicodeChar == 0) {
-            unicodeChar = event.getUnicodeChar();
-        }
-        if (unicodeChar == 0 || (unicodeChar & KeyCharacterMap.COMBINING_ACCENT) != 0) {
-            return false;
-        }
-        int ch = unicodeChar & KeyCharacterMap.COMBINING_ACCENT_MASK;
-        if (ch == 0 || Character.isISOControl(ch)) {
-            return false;
-        }
+        String glyph = KeyGlyphs.specialForAndroidKey(event.getKeyCode());
+        if (glyph == null || glyph.isEmpty()) return true;
 
-        int metaWithoutAlt = event.getMetaState()
-                & ~(KeyEvent.META_ALT_ON | KeyEvent.META_ALT_LEFT_ON | KeyEvent.META_ALT_RIGHT_ON);
-        int withoutAlt = event.getUnicodeChar(metaWithoutAlt);
-        int baseCh = withoutAlt & KeyCharacterMap.COMBINING_ACCENT_MASK;
-        if ((withoutAlt & KeyCharacterMap.COMBINING_ACCENT) != 0) {
-            baseCh = 0;
+        TitanHostKeys.Chord chord = TitanHostKeys.glyph(glyph.charAt(0));
+        if (chord != null && chord.keyCode != KeyEvent.KEYCODE_UNKNOWN && chord.keyCode != 0) {
+            short vk = keyboardTranslator.translate(chord.keyCode, -1);
+            if (vk != 0) {
+                byte flags = keyboardTranslator.hasNormalizedMapping(chord.keyCode, -1)
+                        ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED;
+                if (down) {
+                    if (event.getRepeatCount() > 0) return true;
+                    conn.sendKeyboardInput(vk, KeyboardPacket.KEY_DOWN, chord.modifier, flags);
+                } else {
+                    conn.sendKeyboardInput(vk, KeyboardPacket.KEY_UP, chord.modifier, flags);
+                }
+                return true;
+            }
         }
-        if (ch == baseCh) {
-            // RAlt did not change glyph — send base letter without host Alt.
-            return false;
-        }
-
         if (down && event.getRepeatCount() == 0) {
-            // UTF-8 text matches HID specials intent (glyph lands on host).
-            conn.sendUtf8Text(String.valueOf((char) ch));
+            conn.sendUtf8Text(glyph);
         }
         return true;
     }
@@ -1680,7 +1661,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
             // Local Sym specials: never forward bare RAlt/Sym to the host.
             // Free LAlt still goes through as remote Alt.
-            if (prefConfig.localAltSpecialChars && isLocalSymSpecialsModKey(event.getKeyCode())) {
+            if (isLocalSymSpecialsModKey(event.getKeyCode())) {
                 localSymSpecialsHeld = true;
                 return true;
             }
@@ -1773,7 +1754,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 return false;
             }
 
-            if (prefConfig.localAltSpecialChars && isLocalSymSpecialsModKey(event.getKeyCode())) {
+            if (isLocalSymSpecialsModKey(event.getKeyCode())) {
                 localSymSpecialsHeld = false;
                 return true;
             }

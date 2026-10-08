@@ -218,45 +218,93 @@
         <item>800</item>
         <item>1500</item>
     </string-array>
+    <string-array name="titan_deck_fn_place_names">
+        <item>Top</item>
+        <item>Bottom</item>
+    </string-array>
+    <string-array name="titan_deck_fn_place_values" translatable="false">
+        <item>top</item>
+        <item>bottom</item>
+    </string-array>
+    <string-array name="titan_deck_symbol_set_names">
+        <item>Missing only</item>
+        <item>All symbols</item>
+    </string-array>
+    <string-array name="titan_deck_symbol_set_values" translatable="false">
+        <item>extra</item>
+        <item>all</item>
+    </string-array>
     <string-array name="titan_key_action_names">
         <item>System default</item>
         <item>Do nothing</item>
+        <item>Scroll up</item>
+        <item>Scroll down</item>
         <item>Left click</item>
         <item>Right click</item>
         <item>Middle click</item>
-        <item>Scroll up</item>
-        <item>Scroll down</item>
+        <item>Arrow up</item>
+        <item>Arrow down</item>
+        <item>Arrow left</item>
+        <item>Arrow right</item>
+        <item>Page up</item>
+        <item>Page down</item>
+        <item>Line home</item>
+        <item>Line end</item>
         <item>Esc</item>
         <item>Enter</item>
         <item>Tab</item>
+        <item>Space</item>
         <item>Backspace</item>
         <item>Delete</item>
         <item>Ctrl+C</item>
         <item>Ctrl+V</item>
+        <item>Ctrl+X</item>
         <item>Ctrl+A</item>
         <item>Ctrl+Z</item>
+        <item>Ctrl+W</item>
+        <item>Ctrl+T</item>
+        <item>Ctrl+F</item>
         <item>Alt+Tab</item>
+        <item>Alt+F4</item>
+        <item>Ctrl+Shift+Esc</item>
+        <item>F5</item>
         <item>F11</item>
         <item>Super</item>
     </string-array>
     <string-array name="titan_key_action_values" translatable="false">
         <item>default</item>
         <item>none</item>
+        <item>mouse:scroll_up</item>
+        <item>mouse:scroll_down</item>
         <item>mouse:left</item>
         <item>mouse:right</item>
         <item>mouse:middle</item>
-        <item>mouse:scroll_up</item>
-        <item>mouse:scroll_down</item>
+        <item>host:up</item>
+        <item>host:down</item>
+        <item>host:left</item>
+        <item>host:right</item>
+        <item>host:pageup</item>
+        <item>host:pagedown</item>
+        <item>host:home</item>
+        <item>host:end</item>
         <item>host:esc</item>
         <item>host:enter</item>
         <item>host:tab</item>
+        <item>host:space</item>
         <item>host:backspace</item>
         <item>host:delete</item>
         <item>host:ctrl+c</item>
         <item>host:ctrl+v</item>
+        <item>host:ctrl+x</item>
         <item>host:ctrl+a</item>
         <item>host:ctrl+z</item>
+        <item>host:ctrl+w</item>
+        <item>host:ctrl+t</item>
+        <item>host:ctrl+f</item>
         <item>host:alt+tab</item>
+        <item>host:alt+f4</item>
+        <item>host:ctrl+shift+esc</item>
+        <item>host:f5</item>
         <item>host:f11</item>
         <item>host:super</item>
     </string-array>

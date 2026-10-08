@@ -81,6 +81,76 @@ public final class TitanHostKeys {
     }
 
     /**
+     * {@code ctrl+shift+t} / {@code esc} / {@code f11} from a Controls
+     * {@code host:} action, without the prefix.
+     */
+    public static Chord hostSpec(String spec) {
+        if (spec == null || spec.isEmpty()) return null;
+        byte mod = 0;
+        int key = 0;
+        for (String raw : spec.toLowerCase().split("\\+")) {
+            String p = raw.trim();
+            if (p.isEmpty()) continue;
+            if ("ctrl".equals(p) || "control".equals(p)) {
+                mod |= KeyboardPacket.MODIFIER_CTRL;
+            } else if ("shift".equals(p)) {
+                mod |= KeyboardPacket.MODIFIER_SHIFT;
+            } else if ("alt".equals(p)) {
+                mod |= KeyboardPacket.MODIFIER_ALT;
+            } else if ("meta".equals(p) || "win".equals(p) || "cmd".equals(p)) {
+                mod |= KeyboardPacket.MODIFIER_META;
+            } else {
+                int code = hostKey(p);
+                if (code != 0) key = code;
+            }
+        }
+        if (key == 0) return null;
+        return new Chord(key, mod, null);
+    }
+
+    private static int hostKey(String p) {
+        switch (p) {
+            case "esc":
+            case "escape": return KeyEvent.KEYCODE_ESCAPE;
+            case "tab": return KeyEvent.KEYCODE_TAB;
+            case "enter":
+            case "return": return KeyEvent.KEYCODE_ENTER;
+            case "space": return KeyEvent.KEYCODE_SPACE;
+            case "backspace":
+            case "bksp":
+            case "bs": return KeyEvent.KEYCODE_DEL;
+            case "delete":
+            case "del": return KeyEvent.KEYCODE_FORWARD_DEL;
+            case "up": return KeyEvent.KEYCODE_DPAD_UP;
+            case "down": return KeyEvent.KEYCODE_DPAD_DOWN;
+            case "left": return KeyEvent.KEYCODE_DPAD_LEFT;
+            case "right": return KeyEvent.KEYCODE_DPAD_RIGHT;
+            case "home": return KeyEvent.KEYCODE_MOVE_HOME;
+            case "end": return KeyEvent.KEYCODE_MOVE_END;
+            case "pageup":
+            case "pgup": return KeyEvent.KEYCODE_PAGE_UP;
+            case "pagedown":
+            case "pgdn": return KeyEvent.KEYCODE_PAGE_DOWN;
+            case "super": return KeyEvent.KEYCODE_META_LEFT;
+            default:
+                break;
+        }
+        if (p.startsWith("f") && p.length() >= 2) {
+            try {
+                int n = Integer.parseInt(p.substring(1));
+                if (n >= 1 && n <= 12) return KeyEvent.KEYCODE_F1 + (n - 1);
+            } catch (NumberFormatException ignored) {}
+        }
+        if (p.length() == 1) {
+            char c = p.charAt(0);
+            if (c >= 'a' && c <= 'z') return KeyEvent.KEYCODE_A + (c - 'a');
+            if (c == '0') return KeyEvent.KEYCODE_0;
+            if (c >= '1' && c <= '9') return KeyEvent.KEYCODE_1 + (c - '1');
+        }
+        return 0;
+    }
+
+    /**
      * Printed character → US key chord, same shift bit as {@link KeyGlyphs#hidFor}.
      * Null when the character is not on the shared catalog.
      */

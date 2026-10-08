@@ -145,23 +145,74 @@ public final class TitanDeckBars {
         String[][] rows = KeyGlyphs.rows(
                 prefs.titanDeckNav, prefs.titanDeckMods,
                 prefs.titanDeckFn, prefs.titanDeckEdit);
+        List<String[]> fn = new ArrayList<>();
+        List<String[]> body = new ArrayList<>();
+        for (String[] row : rows) {
+            if (isFnRow(row)) fn.add(row);
+            else body.add(row);
+        }
+        boolean fnTop = !"bottom".equals(prefs.titanDeckFnPlace);
+        List<String[]> topRows = new ArrayList<>();
+        List<String[]> botRows = new ArrayList<>();
         if (showTop && showBottom) {
-            int mid = Math.max(1, (rows.length + 1) / 2);
-            for (int i = 0; i < rows.length; i++) {
-                if (topSide == (i < mid)) out.add(rows[i]);
+            if (fnTop && !fn.isEmpty()) {
+                topRows.addAll(fn);
+                botRows.addAll(body);
+            } else {
+                int mid = Math.max(1, (body.size() + 1) / 2);
+                for (int i = 0; i < body.size(); i++) {
+                    if (i < mid) topRows.add(body.get(i));
+                    else botRows.add(body.get(i));
+                }
+                if (!fnTop) botRows.addAll(fn);
+                else topRows.addAll(0, fn);
             }
-            if (topSide && out.isEmpty() && rows.length > 0) out.add(rows[0]);
         } else {
-            for (String[] row : rows) out.add(row);
+            List<String[]> all = new ArrayList<>();
+            if (fnTop) {
+                all.addAll(fn);
+                all.addAll(body);
+            } else {
+                all.addAll(body);
+                all.addAll(fn);
+            }
+            if (showTop) topRows.addAll(all);
+            else botRows.addAll(all);
         }
-        if (prefs.titanDeckSymbols && topSide == !showBottom) {
-            out.add(symbolRow());
+        if (prefs.titanDeckSymbols) {
+            String[] symbols = symbolRow(prefs);
+            if (symbols.length > 1) {
+                if (showBottom) botRows.add(symbols);
+                else topRows.add(symbols);
+            }
         }
+        if (topSide) out.addAll(topRows);
+        else out.addAll(botRows);
         return out;
     }
 
-    private String[] symbolRow() {
-        String[] all = KeyGlyphs.SYMBOLS;
+    private static boolean isFnRow(String[] row) {
+        return row != null && row.length > 0 && row[0] != null && row[0].startsWith("F");
+    }
+
+    /**
+     * Glyphs the Titan Sym layer does not type, and that are not already a
+     * key on the deck (grave and slash sit on the rows above).
+     */
+    static String[] extraSymbols() {
+        final String onKeyboard = "0123456789()_-/:@*#+\"'!.?,`";
+        List<String> out = new ArrayList<>();
+        for (String glyph : KeyGlyphs.SYMBOLS) {
+            if (glyph == null || glyph.length() != 1) continue;
+            if (onKeyboard.indexOf(glyph.charAt(0)) >= 0) continue;
+            out.add(glyph);
+        }
+        return out.toArray(new String[0]);
+    }
+
+    private String[] symbolRow(PreferenceConfiguration prefs) {
+        String[] all = (prefs != null && "all".equals(prefs.titanDeckSymbolSet))
+                ? KeyGlyphs.SYMBOLS : extraSymbols();
         int pageSize = 9;
         int pages = Math.max(1, (all.length + pageSize - 1) / pageSize);
         if (symbolPage >= pages) symbolPage = 0;
@@ -192,7 +243,13 @@ public final class TitanDeckBars {
                 if (lastPrefs != null) reload(lastPrefs, lastTop, lastBottom);
                 return;
             }
-            if (TitanHostKeys.isModifierName(key) || TitanHostKeys.namedKeyCode(key) != 0) {
+            /* A one-character catalog glyph goes through onGlyph so "!" keeps
+             * its Shift. namedKeyCode drops that bit and would print 1.
+             * Arrows stay named keys: "↑" is not in the US catalog. */
+            boolean catalog = key.length() == 1
+                    && com.titanus2.api.KeyGlyphs.hidFor(key.charAt(0)) != null;
+            if (!catalog && (TitanHostKeys.isModifierName(key)
+                    || TitanHostKeys.namedKeyCode(key) != 0)) {
                 host.onNamedKey(key);
             } else {
                 host.onGlyph(key);

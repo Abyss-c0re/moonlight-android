@@ -209,7 +209,7 @@
     <string name="title_checkbox_mouse_absolute_passthrough">Absolute mouse passthrough (no pointer capture)</string>
     <string name="summary_checkbox_mouse_absolute_passthrough">The local Android cursor stays visible at all times and directly controls the remote desktop when over the window. Mouse movements and clicks are forwarded as absolute input. No grabbing, releasing, or edge detection needed — simply move the cursor out of the Moonlight window to use other Quest windows or the system UI. Ideal for multi-window desktop use on Quest.</string>
     <string name="title_checkbox_local_alt_special_chars">Local Sym specials (Titan)</string>
-    <string name="summary_checkbox_local_alt_special_chars">Sym / Right Alt + letter uses Titan KCM specials and sends the glyph to the PC (like USB HID). Free Left Alt still goes to the host for shortcuts. On by default on this fork.</string>
+    <string name="summary_checkbox_local_alt_special_chars">Always on. Sym uses the Titan keyboard map. The glyph keeps its own Shift, so Shift+Sym+8 stays 8. Free Left Alt still goes to the host.</string>
 
     <string name="category_titan_deck">Deck</string>
     <string name="title_titan_deck_panels">Key rows</string>
@@ -223,9 +223,17 @@
     <string name="title_titan_deck_edit">Editing</string>
     <string name="summary_titan_deck_edit">Tab, Insert, Delete, Print, Pause.</string>
     <string name="title_titan_deck_fn">Function keys</string>
-    <string name="summary_titan_deck_fn">F1–F12.</string>
+    <string name="summary_titan_deck_fn">F1–F12. On by default, on the top band.</string>
+    <string name="title_titan_deck_fn_place">Function key place</string>
+    <string name="summary_titan_deck_fn_place">Top swaps F1–F12 with the old top row. Bottom keeps them under the other keys.</string>
     <string name="title_titan_deck_symbols">Symbols</string>
-    <string name="summary_titan_deck_symbols">Sym steps through the shared symbol list.</string>
+    <string name="summary_titan_deck_symbols">Sym steps through the symbol row.</string>
+    <string name="title_titan_deck_symbol_set">Symbol row</string>
+    <string name="summary_titan_deck_symbol_set">Missing only shows glyphs the Titan keyboard cannot type. All shows the full catalog.</string>
+    <string name="title_titan_shortcuts">Shortcuts</string>
+    <string name="summary_titan_shortcuts">Side keys, Back, Recents, Fn, Sym, and Alt. Same slots and chords as Titan Controls.</string>
+    <string name="title_titan_shortcut_extra">Extra chords and combos</string>
+    <string name="summary_titan_shortcut_extra">One slot=action per line. Example: fn_short=ctrl+shift+esc. This overrides the list above for that slot.</string>
     <string name="title_titan_pad_mode">Touchpad while streaming</string>
     <string name="summary_titan_pad_mode">Sets the Titan pad mode through Titan Controls for this stream, then restores it. Leave does not change the phone.</string>
     <string name="title_titan_dbltap">Double-tap</string>
@@ -240,13 +248,29 @@
     <string name="summary_titan_key_repeat">Writes the stock Android repeat delay and rate (same settings Titan Controls uses) for this stream, then restores them.</string>
     <string name="title_titan_typing_lock">Typing-lock delay</string>
     <string name="summary_titan_typing_lock">How long the pad stays paused after typing, in milliseconds. Leave keeps the current Titan value.</string>
-    <string name="title_titan_side_short">Side key, tap</string>
-    <string name="title_titan_side_long">Side key, hold</string>
-    <string name="title_titan_side_double">Side key, double</string>
-    <string name="title_titan_side2_short">Side key 2, tap</string>
-    <string name="title_titan_side2_long">Side key 2, hold</string>
-    <string name="title_titan_side2_double">Side key 2, double</string>
-    <string name="summary_titan_side_key">Same slots as Titan Controls. System default keeps the phone shortcut.</string>
+    <string name="title_titan_side_short">Side key, bottom, tap</string>
+    <string name="title_titan_side_long">Side key, bottom, hold</string>
+    <string name="title_titan_side_double">Side key, bottom, double</string>
+    <string name="title_titan_side2_short">Side key, top, tap</string>
+    <string name="title_titan_side2_long">Side key, top, hold</string>
+    <string name="title_titan_side2_double">Side key, top, double</string>
+    <string name="summary_titan_side_key">Default is mouse scroll: top goes up, bottom goes down. System default keeps the phone shortcut.</string>
+    <string name="title_titan_slot_back_short">Back, tap</string>
+    <string name="title_titan_slot_back_long">Back, hold</string>
+    <string name="title_titan_slot_back_double">Back, double</string>
+    <string name="title_titan_slot_recents_short">Recents, tap</string>
+    <string name="title_titan_slot_recents_long">Recents, hold</string>
+    <string name="title_titan_slot_recents_double">Recents, double</string>
+    <string name="title_titan_slot_fn_short">Fn, tap</string>
+    <string name="title_titan_slot_fn_long">Fn, hold</string>
+    <string name="title_titan_slot_fn_double">Fn, double</string>
+    <string name="title_titan_slot_sym_short">Sym, tap</string>
+    <string name="title_titan_slot_sym_long">Sym, hold</string>
+    <string name="title_titan_slot_sym_double">Sym, double</string>
+    <string name="title_titan_slot_alt_short">Alt, tap</string>
+    <string name="title_titan_slot_alt_long">Alt, hold</string>
+    <string name="title_titan_slot_alt_double">Alt, double</string>
+    <string name="summary_titan_slot">While this app is in front. System default keeps the Titan Controls shortcut.</string>
 
     <string name="category_on_screen_controls_settings">On-screen Controls Settings</string>
     <string name="title_checkbox_show_onscreen_controls">Show on-screen controls</string>

@@ -33,7 +33,7 @@ import java.util.concurrent.Executors;
  * API Atlas and USB HID use (pad mode, key timing, per-app side keys).
  */
 public final class TitanDeck implements TitanDeckBars.Host {
-    public static final String LAYER = "moonlight_stream";
+    public static final String LAYER = Titan2ApiContract.LAYER_MOONLIGHT_STREAM;
     private static final String TAG = "TitanDeck";
 
     private final Activity activity;
@@ -52,6 +52,7 @@ public final class TitanDeck implements TitanDeckBars.Host {
     private boolean shift;
     private boolean meta;
     private boolean caps;
+    private byte heldMouse;
 
     public TitanDeck(Activity activity, StreamView streamView) {
         this.activity = activity;
@@ -79,10 +80,14 @@ public final class TitanDeck implements TitanDeckBars.Host {
         parent.addView(bars.bottom(), botLp);
         IntentFilter filter = new IntentFilter(Titan2ApiContract.ACTION_REMOTE_INPUT);
         filter.addAction(Titan2ApiContract.ACTION_HOST_MOUSE);
+        // Sender must hold the Controls permission. Moonlight itself cannot:
+        // the permission is signature|privileged.
         if (Build.VERSION.SDK_INT >= 33) {
-            activity.registerReceiver(remoteInput, filter, Context.RECEIVER_EXPORTED);
+            activity.registerReceiver(remoteInput, filter,
+                    Titan2ApiContract.PERMISSION_USE, null, Context.RECEIVER_EXPORTED);
         } else {
-            activity.registerReceiver(remoteInput, filter);
+            activity.registerReceiver(remoteInput, filter,
+                    Titan2ApiContract.PERMISSION_USE, null);
         }
     }
 
@@ -258,7 +263,10 @@ public final class TitanDeck implements TitanDeckBars.Host {
         TitanHostKeys.Chord chord = TitanHostKeys.glyph(c);
         if (chord == null) return;
         if (chord.keyCode != KeyEvent.KEYCODE_UNKNOWN && chord.keyCode != 0) {
-            sendKey(chord.keyCode, (byte) (chord.modifier | stickyModifiers()));
+            /* The glyph already carries its Shift. A latched Shift must not
+             * turn 8 into * or ! into 1. Ctrl, Alt, and Meta still apply. */
+            byte sticky = (byte) (stickyModifiers() & ~KeyboardPacket.MODIFIER_SHIFT);
+            sendKey(chord.keyCode, (byte) (chord.modifier | sticky));
         } else if (chord.utf8 != null) {
             conn.sendUtf8Text(chord.utf8);
         }
@@ -290,30 +298,71 @@ public final class TitanDeck implements TitanDeckBars.Host {
     }
 
     private void handleRemote(Intent intent) {
+        String action = intent.getStringExtra(Titan2ApiContract.EXTRA_REMOTE_ACTION);
         String kind = intent.getStringExtra(Titan2ApiContract.EXTRA_KIND);
-        if (kind == null) kind = Titan2ApiContract.KIND_MOUSE;
-        if (Titan2ApiContract.KIND_KEY.equals(kind)) {
-            int hid = intent.getIntExtra(Titan2ApiContract.EXTRA_HID_USAGE, 0);
-            int mods = intent.getIntExtra(Titan2ApiContract.EXTRA_MODIFIERS, 0);
-            int code = TitanHostKeys.hidUsageToKeyCode(hid);
-            if (code == 0 || translator == null) return;
-            byte mod = 0;
-            if ((mods & 1) != 0) mod |= KeyboardPacket.MODIFIER_CTRL;
-            if ((mods & 2) != 0) mod |= KeyboardPacket.MODIFIER_SHIFT;
-            if ((mods & 4) != 0) mod |= KeyboardPacket.MODIFIER_ALT;
-            if ((mods & 8) != 0) mod |= KeyboardPacket.MODIFIER_META;
-            sendKey(code, mod);
-            return;
-        }
         int wheel = intent.getIntExtra(Titan2ApiContract.EXTRA_MOUSE_WHEEL, 0);
+        if (wheel == 0) wheel = wheelNotches(action);
         if (wheel != 0) {
             conn.sendMouseScroll((byte) Math.max(-128, Math.min(127, wheel)));
             return;
         }
-        int buttons = intent.getIntExtra(Titan2ApiContract.EXTRA_MOUSE_BUTTONS, 1);
-        byte button = mouseButton(buttons);
+        if (Titan2ApiContract.KIND_KEY.equals(kind)
+                || (action != null && action.startsWith("host:"))) {
+            if (translator == null) return;
+            int hid = intent.getIntExtra(Titan2ApiContract.EXTRA_HID_USAGE, 0);
+            int code = TitanHostKeys.hidUsageToKeyCode(hid);
+            if (code == 0) code = intent.getIntExtra(Titan2ApiContract.EXTRA_KEYCODE, 0);
+            int mods = intent.getIntExtra(Titan2ApiContract.EXTRA_MODIFIERS, 0);
+            byte mod = modifierBits(mods);
+            if (code == 0 && action != null && action.startsWith("host:")) {
+                TitanHostKeys.Chord chord = TitanHostKeys.hostSpec(action.substring(5));
+                if (chord == null) return;
+                code = chord.keyCode;
+                mod = chord.modifier;
+            }
+            if (code == 0) return;
+            sendKey(code, mod);
+            return;
+        }
+        if (kind != null && !Titan2ApiContract.KIND_MOUSE.equals(kind)) return;
+        int buttons = intent.getIntExtra(Titan2ApiContract.EXTRA_MOUSE_BUTTONS, 0);
+        boolean tap = intent.getBooleanExtra(Titan2ApiContract.EXTRA_MOUSE_TAP, buttons != 0);
+        if (buttons == 0 && !tap) {
+            if (heldMouse != 0) conn.sendMouseButtonUp(heldMouse);
+            heldMouse = 0;
+            return;
+        }
+        byte button = mouseButton(buttons == 0 ? 1 : buttons);
+        if (tap) {
+            conn.sendMouseButtonDown(button);
+            conn.sendMouseButtonUp(button);
+            return;
+        }
+        heldMouse = button;
         conn.sendMouseButtonDown(button);
-        conn.sendMouseButtonUp(button);
+    }
+
+    private static int wheelNotches(String action) {
+        if (action == null) return 0;
+        if ("mouse:scroll_up".equals(action) || "mouse:wheel_up".equals(action)) return 1;
+        if ("mouse:scroll_down".equals(action) || "mouse:wheel_down".equals(action)) return -1;
+        if (action.startsWith("mouse:wheel:")) {
+            try {
+                return Integer.parseInt(action.substring("mouse:wheel:".length()).trim());
+            } catch (NumberFormatException e) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private static byte modifierBits(int mods) {
+        byte mod = 0;
+        if ((mods & 1) != 0) mod |= KeyboardPacket.MODIFIER_CTRL;
+        if ((mods & 2) != 0) mod |= KeyboardPacket.MODIFIER_SHIFT;
+        if ((mods & 4) != 0) mod |= KeyboardPacket.MODIFIER_ALT;
+        if ((mods & 8) != 0) mod |= KeyboardPacket.MODIFIER_META;
+        return mod;
     }
 
     private static byte mouseButton(int buttons) {
@@ -341,7 +390,7 @@ public final class TitanDeck implements TitanDeckBars.Host {
     private Snap apply(PreferenceConfiguration prefs) {
         Snap saved = new Snap();
         writeProfile(activity, client, prefs);
-        Map<String, String> layer = layerMap(prefs);
+        Map<String, String> layer = TitanShortcuts.read(activity);
         if (!layer.isEmpty()) {
             boolean pushed = client.pushTempKeyMap(LAYER, layer);
             saved.pushedLayer = pushed;
@@ -425,38 +474,17 @@ public final class TitanDeck implements TitanDeckBars.Host {
         return KeyInputTiming.keyRepeatDelayMs(activity);
     }
 
-    private static Map<String, String> layerMap(PreferenceConfiguration prefs) {
-        Map<String, String> map = new LinkedHashMap<>();
-        putSlot(map, Titan2ApiContract.SLOT_SIDE_SHORT, prefs.titanSideShort);
-        putSlot(map, Titan2ApiContract.SLOT_SIDE_LONG, prefs.titanSideLong);
-        putSlot(map, Titan2ApiContract.SLOT_SIDE_DOUBLE, prefs.titanSideDouble);
-        putSlot(map, Titan2ApiContract.SLOT_SIDE2_SHORT, prefs.titanSide2Short);
-        putSlot(map, Titan2ApiContract.SLOT_SIDE2_LONG, prefs.titanSide2Long);
-        putSlot(map, Titan2ApiContract.SLOT_SIDE2_DOUBLE, prefs.titanSide2Double);
-        return map;
-    }
-
-    private static void putSlot(Map<String, String> map, String slot, String action) {
-        if (action == null || action.isEmpty() || "default".equals(action)) return;
-        map.put(slot, action);
-    }
-
     private static void writeProfile(Context context, Titan2Client api, PreferenceConfiguration prefs) {
         String pkg = context.getPackageName();
         api.ensureKeymapProfile(pkg, "Moonlight");
-        writeSlot(api, pkg, Titan2ApiContract.SLOT_SIDE_SHORT, prefs.titanSideShort);
-        writeSlot(api, pkg, Titan2ApiContract.SLOT_SIDE_LONG, prefs.titanSideLong);
-        writeSlot(api, pkg, Titan2ApiContract.SLOT_SIDE_DOUBLE, prefs.titanSideDouble);
-        writeSlot(api, pkg, Titan2ApiContract.SLOT_SIDE2_SHORT, prefs.titanSide2Short);
-        writeSlot(api, pkg, Titan2ApiContract.SLOT_SIDE2_LONG, prefs.titanSide2Long);
-        writeSlot(api, pkg, Titan2ApiContract.SLOT_SIDE2_DOUBLE, prefs.titanSide2Double);
-    }
-
-    private static void writeSlot(Titan2Client api, String pkg, String slot, String action) {
-        if (action == null || action.isEmpty() || "default".equals(action)) {
-            api.setKeyAction(slot, "", pkg);
-        } else {
-            api.setKeyAction(slot, action, pkg);
+        Map<String, String> profile = TitanShortcuts.readForProfile(context);
+        for (Map.Entry<String, String> e : profile.entrySet()) {
+            String action = e.getValue();
+            if (action == null || action.isEmpty() || "default".equals(action)) {
+                api.setKeyAction(e.getKey(), "", pkg);
+            } else {
+                api.setKeyAction(e.getKey(), action, pkg);
+            }
         }
     }
 
