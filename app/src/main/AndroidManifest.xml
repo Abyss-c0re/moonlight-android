@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA"/>
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA"/>
@@ -240,6 +243,27 @@
                 android:name="com.nvidia.rawCursorInput"
                 android:value="true" />
         </activity>
+
+        <service
+            android:name=".StreamSessionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:process=":stream" />
+        <service
+            android:name=".StreamSessionService2"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:process=":stream2" />
+        <service
+            android:name=".StreamSessionService3"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:process=":stream3" />
+        <service
+            android:name=".StreamSessionService4"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:process=":stream4" />
 
         <service
             android:name=".discovery.DiscoveryService"

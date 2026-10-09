@@ -91,6 +91,13 @@
     <string name="conn_error_msg">Failed to start</string>
     <string name="conn_terminated_title">Connection Terminated</string>
     <string name="conn_terminated_msg">The connection was terminated.</string>
+    <string name="stream_notification_channel">Active stream</string>
+    <string name="stream_notification_title">Moonlight</string>
+    <string name="stream_notification_playing">Still streaming</string>
+    <string name="stream_notification_paused">Stream paused</string>
+    <string name="stream_notification_pause">Pause</string>
+    <string name="stream_notification_resume">Resume</string>
+    <string name="stream_notification_stop">Stop</string>
     <string name="error_code_prefix">Error code:</string>
 
     <!-- General strings -->
