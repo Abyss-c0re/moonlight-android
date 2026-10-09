@@ -103,7 +103,8 @@ import java.util.Locale;
 public class Game extends Activity implements SurfaceHolder.Callback,
         OnGenericMotionListener, OnTouchListener, NvConnectionListener, EvdevListener,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
-        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
+        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
+        StreamSessionService.Host {
     private int lastButtonState = 0;
 
     // Only 2 touches are supported
@@ -182,6 +183,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean autoEnterPip = false;
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
+    private AndroidAudioRenderer audioRenderer;
+    private boolean keepStreamOnLeave;
+    private boolean userPausedStream;
+    private boolean streamNotificationVisible;
+    private final AudioManager.OnAudioFocusChangeListener streamAudioFocusListener =
+            new AudioManager.OnAudioFocusChangeListener() {
+                @Override
+                public void onAudioFocusChange(int focusChange) {
+                    // Android audio focus is not a reason to pause or stop the stream.
+                }
+            };
     private int suppressPipRefCount = 0;
 
     // Used to disable input after the stream has ended (e.g. because another
@@ -680,6 +692,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // The connection will be started when the surface gets created
         streamView.getHolder().addCallback(this);
+        StreamSessionService.setHost(this);
+        requestStreamNotificationPermission();
     }
 
     private void setPreferredOrientationForCurrentDisplay() {
@@ -1186,6 +1200,20 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        if (StreamSessionService.getHost() == this) {
+            StreamSessionService.setHost(null);
+        }
+        if (conn != null && (connected || connecting)) {
+            keepStreamOnLeave = false;
+            if (decoderRenderer != null && attemptedConnection) {
+                decoderRenderer.prepareForStop();
+            }
+            stopConnection();
+        }
+        else {
+            dismissStreamNotification();
+            abandonStreamAudioFocus();
+        }
         if (titanDeck != null) {
             titanDeck.destroy();
             titanDeck = null;
@@ -1233,8 +1261,42 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (!keepStreamOnLeave && !userPausedStream) {
+            return;
+        }
+        if (isFinishing() || conn == null || (!connected && !connecting)) {
+            return;
+        }
+
+        // Coming back shows the stream again. Pause holds only while we stay away.
+        keepStreamOnLeave = false;
+        userPausedStream = false;
+        if (audioRenderer != null) {
+            audioRenderer.setPaused(false);
+        }
+        if (decoderRenderer != null) {
+            decoderRenderer.setRenderSuppressed(false);
+            Surface display = streamView != null ? streamView.getHolder().getSurface() : null;
+            if (surfaceCreated && display != null && display.isValid()) {
+                decoderRenderer.attachDisplay(streamView.getHolder());
+            }
+        }
+        dismissStreamNotification();
+        if (connected) {
+            setInputGrabState(true);
+        }
+        if (virtualController != null && prefConfig != null && prefConfig.onscreenController && !isStreamInPip()) {
+            virtualController.show();
+        }
+    }
+
+    @Override
     protected void onPause() {
         if (isFinishing()) {
+            keepStreamOnLeave = false;
             // Stop any further input device notifications before we lose focus (and pointer capture)
             if (controllerHandler != null) {
                 controllerHandler.stop();
@@ -1242,6 +1304,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
             // Ungrab input to prevent further input device notifications
             setInputGrabState(false);
+        }
+        else if (!isStreamInPip() && conn != null && (connected || connecting)) {
+            // Still foreground enough to start the keep-alive service. Do not pause playback.
+            keepStreamOnLeave = true;
+            setInputGrabState(false);
+            if (connected) {
+                showStreamNotification();
+            }
         }
 
         super.onPause();
@@ -1256,6 +1326,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         if (virtualController != null) {
             virtualController.hide();
+        }
+
+        // Leaving the activity keeps the host session. Stop is the notification action.
+        // Picture-in-picture stays on its own surface: do not park and do not stop.
+        if (!isFinishing() && conn != null && (connected || connecting)) {
+            if (isStreamInPip()) {
+                return;
+            }
+            keepStreamOnLeave = true;
+            if (decoderRenderer != null) {
+                decoderRenderer.parkOffDisplay();
+            }
+            if (connected || connecting) {
+                showStreamNotification();
+            }
+            return;
         }
 
         if (conn != null) {
@@ -2677,7 +2763,158 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     public void stageComplete(String stage) {
     }
 
+    private boolean isStreamInPip() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode();
+    }
+
+    private void requestStreamNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return;
+        }
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 0x4d4c);
+        }
+    }
+
+    private String streamNotificationTitle() {
+        if (appName != null && pcName != null) {
+            return appName + " - " + pcName;
+        }
+        if (appName != null) {
+            return appName;
+        }
+        if (pcName != null) {
+            return pcName;
+        }
+        return getString(R.string.stream_notification_title);
+    }
+
+    private void requestStreamAudioFocus() {
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager == null) {
+            return;
+        }
+        audioManager.requestAudioFocus(streamAudioFocusListener,
+                AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+    }
+
+    private void abandonStreamAudioFocus() {
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager == null) {
+            return;
+        }
+        audioManager.abandonAudioFocus(streamAudioFocusListener);
+    }
+
+    private void showStreamNotification() {
+        if (isFinishing()) {
+            return;
+        }
+        try {
+            Intent intent = new Intent(this, StreamSessionService.serviceClassFor(this));
+            intent.setAction(StreamSessionService.ACTION_SHOW);
+            intent.putExtra(StreamSessionService.EXTRA_TITLE, streamNotificationTitle());
+            intent.putExtra(StreamSessionService.EXTRA_PAUSED, userPausedStream);
+            intent.putExtra(StreamSessionService.EXTRA_ACTIVITY, getClass().getName());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent);
+            }
+            else {
+                startService(intent);
+            }
+            streamNotificationVisible = true;
+            if (!userPausedStream) {
+                requestStreamAudioFocus();
+            }
+        } catch (IllegalStateException e) {
+            LimeLog.warning("Could not post the stream notification: " + e.getMessage());
+        }
+    }
+
+    private void dismissStreamNotification() {
+        if (!streamNotificationVisible) {
+            return;
+        }
+        streamNotificationVisible = false;
+        try {
+            Intent intent = new Intent(this, StreamSessionService.serviceClassFor(this));
+            intent.setAction(StreamSessionService.ACTION_DISMISS);
+            startService(intent);
+        } catch (IllegalStateException e) {
+            LimeLog.warning("Could not dismiss the stream notification: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void onStreamPauseRequested() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (conn == null || (!connected && !connecting)) {
+                    dismissStreamNotification();
+                    return;
+                }
+                userPausedStream = true;
+                if (audioRenderer != null) {
+                    audioRenderer.setPaused(true);
+                }
+                if (decoderRenderer != null) {
+                    decoderRenderer.setRenderSuppressed(true);
+                }
+                abandonStreamAudioFocus();
+                showStreamNotification();
+            }
+        });
+    }
+
+    @Override
+    public void onStreamResumeRequested() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                userPausedStream = false;
+                if (audioRenderer != null) {
+                    audioRenderer.setPaused(false);
+                }
+                if (decoderRenderer != null) {
+                    decoderRenderer.setRenderSuppressed(false);
+                }
+                requestStreamAudioFocus();
+                if (keepStreamOnLeave && !isFinishing()) {
+                    showStreamNotification();
+                }
+                else {
+                    dismissStreamNotification();
+                    if (connected) {
+                        setInputGrabState(true);
+                    }
+                }
+            }
+        });
+    }
+
+    @Override
+    public void onStreamStopRequested() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                keepStreamOnLeave = false;
+                userPausedStream = false;
+                if (decoderRenderer != null && attemptedConnection) {
+                    decoderRenderer.prepareForStop();
+                }
+                stopConnection();
+                finish();
+            }
+        });
+    }
+
     private void stopConnection() {
+        dismissStreamNotification();
+        abandonStreamAudioFocus();
+        keepStreamOnLeave = false;
+        userPausedStream = false;
         if (connecting || connected) {
             connecting = connected = false;
             streamActive = false;
@@ -2896,6 +3133,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 connecting = false;
                 updatePipAutoEnter();
 
+                if (keepStreamOnLeave && !isFinishing()) {
+                    showStreamNotification();
+                }
+
                 // Hide the mouse cursor now after a short delay.
                 // Doing it before dismissing the spinner seems to be undone
                 // when the spinner gets displayed. On Android Q, even now
@@ -2905,7 +3146,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 h.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        setInputGrabState(true);
+                        if (!keepStreamOnLeave && !userPausedStream) {
+                            setInputGrabState(true);
+                        }
                     }
                 }, 500);
 
@@ -3003,8 +3246,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
             decoderRenderer.setRenderTarget(holder);
             markStreamActive();
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
-                    decoderRenderer, Game.this);
+            connecting = true;
+            audioRenderer = new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx);
+            conn.start(audioRenderer, decoderRenderer, Game.this);
+        }
+        else if (conn != null && decoderRenderer != null) {
+            decoderRenderer.attachDisplay(holder);
+            if (userPausedStream) {
+                decoderRenderer.setRenderSuppressed(true);
+            }
         }
     }
 
@@ -3051,10 +3301,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         if (attemptedConnection) {
+            boolean keep = !isFinishing() && conn != null && (connected || connecting);
+            if (keep) {
+                keepStreamOnLeave = true;
+                decoderRenderer.parkOffDisplay();
+                return;
+            }
+
             // Let the decoder know immediately that the surface is gone
             decoderRenderer.prepareForStop();
 
-            if (connected) {
+            if (connected || connecting) {
                 stopConnection();
             }
         }

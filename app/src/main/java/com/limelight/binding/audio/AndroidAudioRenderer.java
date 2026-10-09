@@ -19,6 +19,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private final boolean enableAudioFx;
 
     private AudioTrack track;
+    private volatile boolean paused;
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
         this.context = context;
@@ -26,8 +27,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     }
 
     private AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
+        // MEDIA so a backgrounded stream is allowed to keep playing with the
+        // mediaPlayback foreground service. Low-latency mode is selected separately.
         AudioAttributes.Builder attributesBuilder = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_GAME);
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE);
         AudioFormat format = new AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                 .setSampleRate(sampleRate)
@@ -185,14 +189,43 @@ public class AndroidAudioRenderer implements AudioRenderer {
         return 0;
     }
 
+    /** Local pause. Does not release the track or the stream. */
+    public void setPaused(boolean pause) {
+        AudioTrack current = track;
+        paused = pause;
+        if (current == null) {
+            return;
+        }
+        synchronized (current) {
+            try {
+                if (pause) {
+                    current.pause();
+                    current.flush();
+                }
+                else {
+                    current.play();
+                }
+            } catch (IllegalStateException e) {
+                LimeLog.warning("Audio pause/resume failed: " + e.getMessage());
+            }
+        }
+    }
+
     @Override
     public void playDecodedAudio(short[] audioData) {
+        if (paused || track == null) {
+            return;
+        }
         // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
         if (MoonBridge.getPendingAudioDuration() < 40) {
             // This will block until the write is completed. That can cause a backlog
             // of pending audio data, so we do the above check to be able to bound
             // latency at 40 ms in that situation.
-            track.write(audioData, 0, audioData.length);
+            try {
+                track.write(audioData, 0, audioData.length);
+            } catch (IllegalStateException e) {
+                LimeLog.warning("Audio write dropped: " + e.getMessage());
+            }
         }
         else {
             LimeLog.info("Too much pending audio data: " + MoonBridge.getPendingAudioDuration() +" ms");

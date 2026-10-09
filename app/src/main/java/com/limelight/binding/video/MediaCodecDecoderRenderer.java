@@ -35,6 +35,7 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.util.Range;
 import android.view.Choreographer;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 
 public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements Choreographer.FrameCallback {
@@ -77,6 +78,19 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int consecutiveCrashCount;
     private String glRenderer;
     private boolean foreground = true;
+    private final Object outputSwapLock = new Object();
+    private int outputUsers;
+    private boolean outputSwapArmed;
+    private final ThreadLocal<Integer> codecDepth = new ThreadLocal<Integer>() {
+        @Override
+        protected Integer initialValue() {
+            return 0;
+        }
+    };
+    private volatile boolean suppressRender;
+    private volatile boolean holdOutput;
+    private volatile boolean parkedOffDisplay;
+    private final OffscreenDecoderSurface offscreenSink = new OffscreenDecoderSurface();
     private PerfOverlayListener perfListener;
 
     private static final int CR_MAX_TRIES = 10;
@@ -331,6 +345,163 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.renderTarget = renderTarget;
     }
 
+    /**
+     * Leave the Activity surface without stopping the decoder.
+     * Frames keep flowing to an offscreen target so the codec does not stall.
+     */
+    public void parkOffDisplay() {
+        if (stopping || parkedOffDisplay) {
+            return;
+        }
+        int width = initialWidth > 0 ? initialWidth : 16;
+        int height = initialHeight > 0 ? initialHeight : 16;
+        Surface offscreen = offscreenSink.acquire(width, height);
+        if (videoDecoder == null || offscreen == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            parkedOffDisplay = true;
+            suppressRender = true;
+            return;
+        }
+        swapOutputSurface(offscreen, true);
+    }
+
+    /** Point the decoder back at the Activity surface after it is recreated. */
+    public void attachDisplay(SurfaceHolder holder) {
+        this.renderTarget = holder;
+        if (stopping) {
+            return;
+        }
+        Surface surface = holder != null ? holder.getSurface() : null;
+        // A second surfaceChanged while we are already on the view must not
+        // call setOutputSurface again. Only a parked decoder needs the swap.
+        if (!parkedOffDisplay) {
+            suppressRender = (surface == null || !surface.isValid()) || holdOutput;
+            return;
+        }
+        if (videoDecoder == null || surface == null || !surface.isValid()
+                || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            // Stay parked until a real display surface is ready to bind.
+            if (surface == null || !surface.isValid()) {
+                suppressRender = true;
+            }
+            return;
+        }
+        codecRecoveryAttempts = 0;
+        swapOutputSurface(surface, false);
+    }
+
+    /** User pause: drop displayed frames. The connection stays up. */
+    public void setRenderSuppressed(boolean suppress) {
+        holdOutput = suppress;
+        suppressRender = suppress;
+    }
+
+    private boolean shouldRenderFrame() {
+        return !suppressRender && !holdOutput;
+    }
+
+    private Surface surfaceForDecoder() {
+        if (parkedOffDisplay) {
+            Surface offscreen = offscreenSink.getSurface();
+            if (offscreen != null && offscreen.isValid()) {
+                return offscreen;
+            }
+        }
+        if (renderTarget != null) {
+            Surface displayed = renderTarget.getSurface();
+            if (displayed != null && displayed.isValid()) {
+                return displayed;
+            }
+        }
+        return offscreenSink.getSurface();
+    }
+
+    @TargetApi(Build.VERSION_CODES.M)
+    private void swapOutputSurface(Surface next, boolean parking) {
+        synchronized (outputSwapLock) {
+            outputSwapArmed = true;
+            long deadline = SystemClock.uptimeMillis() + 500;
+            while (outputUsers > 0 && !stopping && SystemClock.uptimeMillis() < deadline) {
+                try {
+                    outputSwapLock.wait(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            try {
+                boolean idle = outputUsers == 0 && !stopping && videoDecoder != null
+                        && next != null && next.isValid();
+                if (idle) {
+                    videoDecoder.setOutputSurface(next);
+                    parkedOffDisplay = parking;
+                    suppressRender = holdOutput;
+                    LimeLog.info(parking
+                            ? "Decoder parked off the display"
+                            : "Decoder attached to the display");
+                }
+                else {
+                    parkedOffDisplay = parking;
+                    suppressRender = true;
+                    if (!stopping && videoDecoder != null) {
+                        codecRecoveryAttempts = 0;
+                        codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART);
+                        LimeLog.warning("Decoder surface swap deferred to a restart");
+                    }
+                }
+            } catch (RuntimeException e) {
+                parkedOffDisplay = parking;
+                suppressRender = true;
+                codecRecoveryAttempts = 0;
+                codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART);
+                LimeLog.warning("setOutputSurface failed: " + e.getMessage());
+            } finally {
+                outputSwapArmed = false;
+                outputSwapLock.notifyAll();
+            }
+        }
+    }
+
+    private boolean enterCodec() {
+        int depth = codecDepth.get();
+        if (depth > 0) {
+            codecDepth.set(depth + 1);
+            return true;
+        }
+        synchronized (outputSwapLock) {
+            while (outputSwapArmed && !stopping) {
+                try {
+                    outputSwapLock.wait(50);
+                } catch (InterruptedException e) {
+                    if (stopping) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                }
+            }
+            if (stopping) {
+                return false;
+            }
+            outputUsers++;
+            codecDepth.set(1);
+            return true;
+        }
+    }
+
+    private void exitCodec() {
+        int depth = codecDepth.get();
+        if (depth > 1) {
+            codecDepth.set(depth - 1);
+            return;
+        }
+        codecDepth.set(0);
+        synchronized (outputSwapLock) {
+            if (outputUsers > 0) {
+                outputUsers--;
+            }
+            outputSwapLock.notifyAll();
+        }
+    }
+
     public MediaCodecDecoderRenderer(Activity activity, PreferenceConfiguration prefs,
                                      CrashListener crashListener, int consecutiveCrashCount,
                                      boolean meteredData, boolean requestedHdr,
@@ -574,7 +745,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         LimeLog.info("Configuring with format: "+format);
 
-        videoDecoder.configure(format, renderTarget.getSurface(), null, 0);
+        videoDecoder.configure(format, surfaceForDecoder(), null, 0);
 
         configuredFormat = format;
 
@@ -594,6 +765,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Start the decoder
         videoDecoder.start();
+        suppressRender = holdOutput;
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
             legacyInputBuffers = videoDecoder.getInputBuffers();
@@ -803,8 +975,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     } catch (IllegalArgumentException e) {
                         e.printStackTrace();
 
-                        // Our Surface is probably invalid, so just stop
-                        stopping = true;
+                        // A dead display surface is not fatal while the session is parked off-screen.
+                        if (parkedOffDisplay) {
+                            LimeLog.warning("Decoder surface rejected while parked; keeping the stream");
+                            suppressRender = true;
+                        }
+                        else {
+                            // Our Surface is probably invalid, so just stop
+                            stopping = true;
+                        }
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalStateException e) {
                         e.printStackTrace();
@@ -826,8 +1005,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     } catch (IllegalArgumentException e) {
                         e.printStackTrace();
 
-                        // Our Surface is probably invalid, so just stop
-                        stopping = true;
+                        // A dead display surface is not fatal while the session is parked off-screen.
+                        if (parkedOffDisplay) {
+                            LimeLog.warning("Decoder surface rejected while parked; keeping the stream");
+                            suppressRender = true;
+                        }
+                        else {
+                            // Our Surface is probably invalid, so just stop
+                            stopping = true;
+                        }
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalStateException e) {
                         e.printStackTrace();
@@ -852,8 +1038,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     } catch (IllegalArgumentException e) {
                         e.printStackTrace();
 
-                        // Our Surface is probably invalid, so just stop
-                        stopping = true;
+                        // A dead display surface is not fatal while the session is parked off-screen.
+                        if (parkedOffDisplay) {
+                            LimeLog.warning("Decoder surface rejected while parked; keeping the stream");
+                            suppressRender = true;
+                        }
+                        else {
+                            // Our Surface is probably invalid, so just stop
+                            stopping = true;
+                        }
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalStateException e) {
                         // If we failed to recover after all of these attempts, just crash
@@ -897,6 +1090,23 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean handleDecoderException(IllegalStateException e) {
         // Eat decoder exceptions if we're in the process of stopping
         if (stopping) {
+            return false;
+        }
+
+        // The Activity surface can die while the stream stays up. Never end the
+        // session for that. Reconfigure onto the offscreen target, then keep going.
+        if (parkedOffDisplay) {
+            suppressRender = true;
+            if (codecRecoveryAttempts < 3) {
+                codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART);
+            }
+            else {
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             return false;
         }
 
@@ -1030,24 +1240,33 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             // frame of buffer to smooth over network/rendering jitter.
             Integer nextOutputBuffer = outputBufferQueue.poll();
             if (nextOutputBuffer != null) {
-                try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos);
-                    }
-                    else {
-                        videoDecoder.releaseOutputBuffer(nextOutputBuffer, true);
-                    }
-
-                    lastRenderedFrameTimeNanos = frameTimeNanos;
-                    activeWindowVideoStats.totalFramesRendered++;
-                } catch (IllegalStateException ignored) {
+                boolean inCodec = enterCodec();
+                if (inCodec) {
                     try {
-                        // Try to avoid leaking the output buffer by releasing it without rendering
-                        videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
-                    } catch (IllegalStateException e) {
-                        // This will leak nextOutputBuffer, but there's really nothing else we can do
-                        e.printStackTrace();
-                        handleDecoderException(e);
+                        if (!shouldRenderFrame()) {
+                            videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
+                        }
+                        else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos);
+                            lastRenderedFrameTimeNanos = frameTimeNanos;
+                            activeWindowVideoStats.totalFramesRendered++;
+                        }
+                        else {
+                            videoDecoder.releaseOutputBuffer(nextOutputBuffer, true);
+                            lastRenderedFrameTimeNanos = frameTimeNanos;
+                            activeWindowVideoStats.totalFramesRendered++;
+                        }
+                    } catch (IllegalStateException ignored) {
+                        try {
+                            // Try to avoid leaking the output buffer by releasing it without rendering
+                            videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
+                        } catch (IllegalStateException e) {
+                            // This will leak nextOutputBuffer, but there's really nothing else we can do
+                            e.printStackTrace();
+                            handleDecoderException(e);
+                        }
+                    } finally {
+                        exitCodec();
                     }
                 }
             }
@@ -1088,7 +1307,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             public void run() {
                 BufferInfo info = new BufferInfo();
                 while (!stopping) {
+                    boolean inCodec = false;
                     try {
+                        inCodec = enterCodec();
+                        if (!inCodec) {
+                            break;
+                        }
                         // Try to output a frame
                         int outIndex = videoDecoder.dequeueOutputBuffer(info, 50000);
                         if (outIndex >= 0) {
@@ -1109,7 +1333,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     presentationTimeUs = info.presentationTimeUs;
                                 }
 
-                                if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
+                                if (!shouldRenderFrame()) {
+                                    videoDecoder.releaseOutputBuffer(lastIndex, false);
+                                }
+                                else if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
                                         prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
                                     // In max smoothness or cap FPS mode, we want to never drop frames
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -1119,6 +1346,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     else {
                                         videoDecoder.releaseOutputBuffer(lastIndex, true);
                                     }
+                                    activeWindowVideoStats.totalFramesRendered++;
                                 }
                                 else {
                                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
@@ -1129,9 +1357,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                     else {
                                         videoDecoder.releaseOutputBuffer(lastIndex, true);
                                     }
+                                    activeWindowVideoStats.totalFramesRendered++;
                                 }
-
-                                activeWindowVideoStats.totalFramesRendered++;
                             }
                             else {
                                 // For balanced frame pacing case, the Choreographer callback will handle rendering.
@@ -1180,6 +1407,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     } catch (IllegalStateException e) {
                         handleDecoderException(e);
                     } finally {
+                        if (inCodec) {
+                            exitCodec();
+                        }
                         doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);
                     }
                 }
@@ -1193,6 +1423,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean fetchNextInputBuffer() {
         long startTime;
         boolean codecRecovered;
+        boolean inCodec = false;
 
         if (nextInputBuffer != null) {
             // We already have an input buffer
@@ -1202,6 +1433,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         startTime = SystemClock.uptimeMillis();
 
         try {
+            inCodec = enterCodec();
+            if (!inCodec) {
+                return false;
+            }
             // If we don't have an input buffer index yet, fetch one now
             while (nextInputBufferIndex < 0 && !stopping) {
                 nextInputBufferIndex = videoDecoder.dequeueInputBuffer(10000);
@@ -1231,6 +1466,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             handleDecoderException(e);
             return false;
         } finally {
+            if (inCodec) {
+                exitCodec();
+            }
             codecRecovered = doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
         }
 
@@ -1335,7 +1573,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void cleanup() {
-        videoDecoder.release();
+        try {
+            if (videoDecoder != null) {
+                videoDecoder.release();
+            }
+        } finally {
+            offscreenSink.release();
+        }
     }
 
     @Override
@@ -1370,8 +1614,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private boolean queueNextInputBuffer(long timestampUs, int codecFlags) {
         boolean codecRecovered;
+        boolean inCodec = false;
 
         try {
+            inCodec = enterCodec();
+            if (!inCodec) {
+                return false;
+            }
             videoDecoder.queueInputBuffer(nextInputBufferIndex,
                     0, nextInputBuffer.position(),
                     timestampUs, codecFlags);
@@ -1394,6 +1643,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             return false;
         } finally {
+            if (inCodec) {
+                exitCodec();
+            }
             codecRecovered = doCodecRecoveryIfRequired(CR_FLAG_INPUT_THREAD);
         }
 
