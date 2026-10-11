@@ -8,6 +8,7 @@ static jclass xr_class;
 static jmethodID atlas_method;
 
 static JNIEnv* xr_env(void);
+static jmethodID xr_activity_method(JNIEnv* env, const char* name, const char* sig);
 
 void xr_jni_cache_text(JNIEnv* env) {
     if (env == NULL || (xr_class != NULL && atlas_method != NULL)) {
@@ -149,6 +150,46 @@ void xr_jni_post_pointer(int phase, float u, float v, int button) {
         }
     }
     (*env)->CallVoidMethod(env, g_xr.activity, g_xr.on_pointer, (jint)phase, (jfloat)u, (jfloat)v, (jint)button);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+}
+
+void xr_jni_post_key(int key_code, int action, int modifiers) {
+    static jmethodID on_key = NULL;
+    static int key_missing = 0;
+    JNIEnv* env = xr_env();
+    if (key_missing || env == NULL || g_xr.activity == NULL) {
+        return;
+    }
+    if (on_key == NULL) {
+        on_key = xr_activity_method(env, "onKeyboard", "(III)V");
+        if (on_key == NULL) {
+            key_missing = 1;
+            return;
+        }
+    }
+    (*env)->CallVoidMethod(env, g_xr.activity, on_key, (jint)key_code, (jint)action, (jint)modifiers);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+}
+
+void xr_jni_reload_keyboard(void) {
+    static jmethodID reload = NULL;
+    static int reload_missing = 0;
+    JNIEnv* env = xr_env();
+    if (reload_missing || env == NULL || g_xr.activity == NULL) {
+        return;
+    }
+    if (reload == NULL) {
+        reload = xr_activity_method(env, "reloadKeyboardConfig", "()V");
+        if (reload == NULL) {
+            reload_missing = 1;
+            return;
+        }
+    }
+    (*env)->CallVoidMethod(env, g_xr.activity, reload);
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionClear(env);
     }
@@ -329,4 +370,25 @@ Java_com_limelight_vr_MoonlightXr_nativeClearVideo(JNIEnv* env, jclass clazz) {
     (void)env;
     (void)clazz;
     __atomic_add_fetch(&g_xr.video_epoch, 1, __ATOMIC_RELEASE);
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_vr_MoonlightXr_nativeSetKeyboard(JNIEnv* env, jclass clazz, jstring text) {
+    const char* utf;
+    jsize bytes;
+    (void)clazz;
+    if (text == NULL) {
+        return;
+    }
+    bytes = (*env)->GetStringUTFLength(env, text);
+    if (bytes <= 0 || bytes >= 48000) {
+        __android_log_print(ANDROID_LOG_WARN, "moonlight-xr", "vr keyboard text rejected (%d bytes)", (int)bytes);
+        return;
+    }
+    utf = (*env)->GetStringUTFChars(env, text, NULL);
+    if (utf == NULL) {
+        return;
+    }
+    xr_keyboard_submit(utf, (int)bytes);
+    (*env)->ReleaseStringUTFChars(env, text, utf);
 }

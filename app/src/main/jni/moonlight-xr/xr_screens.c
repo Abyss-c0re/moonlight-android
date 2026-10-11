@@ -57,7 +57,7 @@ static void spawn_screen(void) {
     }
     int slot = -1;
     int clones = 0;
-    for (int i = 2; i < XR_MAX_SCREENS; i++) {
+    for (int i = 2; i < XR_KEYBOARD_SLOT; i++) {
         if (g_xr.screens[i].alive) {
             clones++;
         } else if (slot < 0) {
@@ -112,8 +112,8 @@ static int hovered_clone(void) {
 static void close_screen(void) {
     int index = hovered_clone();
     if (index < 0) {
-        for (int i = XR_MAX_SCREENS - 1; i >= 2; i--) {
-            if (g_xr.screens[i].alive) {
+        for (int i = XR_KEYBOARD_SLOT - 1; i >= 2; i--) {
+            if (g_xr.screens[i].alive && g_xr.screens[i].kind == XR_SCREEN_CLONE) {
                 index = i;
                 break;
             }
@@ -132,7 +132,7 @@ static void close_screen(void) {
 }
 
 static void reset_layout(void) {
-    for (int i = 2; i < XR_MAX_SCREENS; i++) {
+    for (int i = 2; i < XR_KEYBOARD_SLOT; i++) {
         g_xr.screens[i].alive = 0;
         g_xr.screens[i].grab_mask = 0;
     }
@@ -179,6 +179,9 @@ static void activate(const XrHit* hit) {
         case XR_ACT_APP:
         case XR_ACT_BACK:
             xr_jni_post_pick(hit->action, hit->arg);
+            break;
+        case XR_ACT_KEYBOARD:
+            xr_keyboard_toggle();
             break;
         default:
             break;
@@ -598,7 +601,7 @@ void xr_upload_monitor_face(void) {
 static void draw_button(int y, const char* label, int action) {
     int x = 32;
     int w = XR_MENU_W - 64;
-    int h = 92;
+    int h = 78;
     int hover = g_xr.hit_count == g_xr.menu_hover_hit;
     if (hover) {
         fill_rect(x, y, w, h, 30, 90, 110);
@@ -606,8 +609,8 @@ static void draw_button(int y, const char* label, int action) {
         fill_rect(x, y, w, h, 28, 36, 48);
     }
     fill_rect(x, y, w, 4, 70, 150, 170);
-    int width = text_width(label, 36);
-    draw_string(x + (w - width) / 2, y + 28, 36, label, 230, 240, 245);
+    int width = text_width(label, 30);
+    draw_string(x + (w - width) / 2, y + 24, 30, label, 230, 240, 245);
     add_hit(x, y, w, h, action, 0);
 }
 
@@ -640,8 +643,8 @@ static void rebuild_menu(void) {
     draw_string(32, 128, 28, "Point at a computer, then an app.", 120, 140, 160);
 
     int row_y = 176;
-    /* Five controls stay on the panel even when every library row is filled. */
-    int rows_limit = XR_MENU_H - (5 * 96) - 16;
+    /* Six controls stay on the panel even when every library row is filled. */
+    int rows_limit = XR_MENU_H - (6 * 82) - 16;
     if (row_count == 0) {
         draw_string(56, row_y + 16, 30, "No computers online", 150, 165, 180);
         row_y += 72;
@@ -665,17 +668,23 @@ static void rebuild_menu(void) {
     }
 
     int button_y = row_y + 16;
-    if (button_y + 5 * 96 > XR_MENU_H - 8) {
-        button_y = XR_MENU_H - 8 - 5 * 96;
+    const char* keyboard_label = "Show keyboard";
+    if (button_y + 6 * 82 > XR_MENU_H - 8) {
+        button_y = XR_MENU_H - 8 - 6 * 82;
+    }
+    if (g_xr.screens[XR_KEYBOARD_SLOT].alive && g_xr.screens[XR_KEYBOARD_SLOT].visible) {
+        keyboard_label = "Hide keyboard";
     }
     draw_button(button_y, "Add monitor", XR_ACT_SPAWN);
-    button_y += 96;
+    button_y += 82;
     draw_button(button_y, "Close monitor", XR_ACT_CLOSE);
-    button_y += 96;
+    button_y += 82;
     draw_button(button_y, "Reset monitors", XR_ACT_RESET);
-    button_y += 96;
+    button_y += 82;
     draw_button(button_y, "Passthrough", XR_ACT_PASSTHROUGH);
-    button_y += 96;
+    button_y += 82;
+    draw_button(button_y, keyboard_label, XR_ACT_KEYBOARD);
+    button_y += 82;
     draw_button(button_y, "Exit to app", XR_ACT_EXIT);
 
     upload_ui_texture(&g_xr.menu_tex, g_xr.menu_pixels, XR_MENU_W, XR_MENU_H);
@@ -707,6 +716,7 @@ static void raycast_all(void) {
         g_xr.hand_hit[hand] = 0;
         g_xr.hand_hover[hand] = -1;
         g_xr.hand_menu_hit[hand] = -1;
+        g_xr.hand_key[hand] = -1;
         if (!g_xr.hand_active[hand]) {
             continue;
         }
@@ -747,6 +757,10 @@ static void raycast_all(void) {
         g_xr.hand_u[hand] = best_u;
         g_xr.hand_v[hand] = best_v;
         g_xr.hand_point[hand] = best_point;
+        if (g_xr.screens[best].kind == XR_SCREEN_KEYBOARD) {
+            g_xr.hand_key[hand] = xr_keyboard_pick(best_u, best_v);
+            continue;
+        }
         if (g_xr.screens[best].kind != XR_SCREEN_MENU) {
             continue;
         }
@@ -919,7 +933,8 @@ static int stream_screen(int index) {
         return 0;
     }
     XrScreen* screen = &g_xr.screens[index];
-    return screen->alive && screen->visible && screen->kind != XR_SCREEN_MENU && screen->grab_mask == 0;
+    return screen->alive && screen->visible && screen->kind != XR_SCREEN_MENU &&
+           screen->kind != XR_SCREEN_KEYBOARD && screen->grab_mask == 0;
 }
 
 /* Absolute mouse, sent on the XR thread. Moonlight keeps only the latest
@@ -978,6 +993,10 @@ static void update_pointer(XrTime time) {
                 if (hit_index >= 0 && hit_index < g_xr.hit_count) {
                     activate(&g_xr.hits[hit_index]);
                 }
+            } else if (screen->kind == XR_SCREEN_KEYBOARD) {
+                int orange = g_xr.stick_click[hand] ? 1 : 0;
+                int purple = g_xr.stick_click[hand ^ 1] ? 1 : 0;
+                xr_keyboard_press(hand, g_xr.hand_key[hand], orange, purple);
             } else if (!g_xr.pointer_down) {
                 g_xr.pointer_down = 1;
                 g_xr.pointer_hand = hand;
@@ -986,8 +1005,8 @@ static void update_pointer(XrTime time) {
                 started_hand = hand;
                 xr_jni_post_pointer(XR_PTR_DOWN, g_xr.hand_u[hand], g_xr.hand_v[hand], 0);
             }
-        } else if (stick_down && !gripping(hand) && screen != NULL && screen->kind != XR_SCREEN_MENU &&
-                   screen->grab_mask == 0 && !g_xr.pointer_down) {
+        } else if (stick_down && !gripping(hand) && on_screen && stream_screen(g_xr.hand_hover[hand]) &&
+                   !g_xr.pointer_down) {
             g_xr.pointer_down = 1;
             g_xr.pointer_hand = hand;
             g_xr.pointer_button = 1;
@@ -1016,6 +1035,10 @@ static void update_pointer(XrTime time) {
         }
     }
 
+    for (int hand = 0; hand < 2; hand++) {
+        xr_keyboard_sustain(hand);
+    }
+
     update_hover_pointer();
 
     for (int hand = 0; hand < 2; hand++) {
@@ -1023,11 +1046,7 @@ static void update_pointer(XrTime time) {
             continue;
         }
         int index = g_xr.hand_hover[hand];
-        if (index < 0 || index >= XR_MAX_SCREENS) {
-            continue;
-        }
-        XrScreen* screen = &g_xr.screens[index];
-        if (!screen->alive || screen->kind == XR_SCREEN_MENU || screen->grab_mask != 0) {
+        if (!stream_screen(index)) {
             continue;
         }
         if (fabsf(g_xr.stick_y[hand]) <= 0.55f) {
@@ -1103,6 +1122,8 @@ void xr_screens_init(void) {
     g_xr.hand_hit[0] = g_xr.hand_hit[1] = 0;
     g_xr.hand_hover[0] = g_xr.hand_hover[1] = -1;
     g_xr.hand_menu_hit[0] = g_xr.hand_menu_hit[1] = -1;
+    g_xr.hand_key[0] = g_xr.hand_key[1] = -1;
+    xr_keyboard_init();
     g_xr.squeeze_held[0] = g_xr.squeeze_held[1] = 0;
     g_xr.trigger_held[0] = g_xr.trigger_held[1] = 0;
     g_xr.stick_held[0] = g_xr.stick_held[1] = 0;
@@ -1114,6 +1135,7 @@ void xr_screens_init(void) {
 }
 
 void xr_screens_destroy(void) {
+    xr_keyboard_destroy();
     free(font_pixels);
     font_pixels = NULL;
     font_ready = 0;
@@ -1135,6 +1157,7 @@ void xr_screens_update(XrTime display_time, XrDuration period) {
             dt = seconds;
         }
     }
+    xr_keyboard_build_pending();
     if (!g_xr.layout_ready && g_xr.head_valid) {
         place_default();
     }
@@ -1147,7 +1170,82 @@ void xr_screens_update(XrTime display_time, XrDuration period) {
     raycast_all();
     /* The second aim is the one the laser draws, so the host cursor matches it. */
     update_pointer(display_time);
+    xr_keyboard_paint_if_needed();
     if (g_xr.menu_dirty) {
         rebuild_menu();
     }
+}
+
+void xr_screens_set_status(const char* text) {
+    set_status(text);
+}
+
+void xr_ui_prepare(void) {
+    xr_text_init();
+}
+
+int xr_ui_font_ready(void) {
+    return font_ready;
+}
+
+int xr_ui_measure(const char* text, int px) {
+    return text_width(text, px);
+}
+
+static void blit_bitmap(uint8_t* pixels, int stride, int limit_w, int limit_h, int x, int y, int px, const char* text,
+                        uint8_t r, uint8_t g, uint8_t b) {
+    int scale = px / 8;
+    int cursor = x;
+    if (pixels == NULL || text == NULL) {
+        return;
+    }
+    if (scale < 1) {
+        scale = 1;
+    }
+    for (const unsigned char* glyph = (const unsigned char*)text; *glyph != 0; glyph++) {
+        int code = *glyph < 128 ? *glyph : (int)'?';
+        for (int row = 0; row < 8; row++) {
+            unsigned char bits = (unsigned char)font8x8_basic[code][row];
+            for (int col = 0; col < 8; col++) {
+                if ((bits & (unsigned char)(1u << col)) == 0) {
+                    continue;
+                }
+                for (int sy = 0; sy < scale; sy++) {
+                    for (int sx = 0; sx < scale; sx++) {
+                        int px_i = cursor + col * scale + sx;
+                        int py = y + row * scale + sy;
+                        uint8_t* pixel;
+                        if ((unsigned)px_i >= (unsigned)limit_w || (unsigned)py >= (unsigned)limit_h) {
+                            continue;
+                        }
+                        pixel = pixels + ((py * stride + px_i) * 4);
+                        pixel[0] = r;
+                        pixel[1] = g;
+                        pixel[2] = b;
+                        pixel[3] = 255;
+                    }
+                }
+            }
+        }
+        cursor += 8 * scale;
+        if (cursor >= limit_w) {
+            break;
+        }
+    }
+}
+
+void xr_ui_string(uint8_t* pixels, int stride, int limit_w, int limit_h, int x, int y, int px, const char* text,
+                  uint8_t r, uint8_t g, uint8_t b) {
+    if (pixels == NULL || text == NULL || px < 1) {
+        return;
+    }
+    if (font_ready) {
+        paint_string(pixels, stride, limit_w, limit_h, x, y, px, text, r, g, b);
+        return;
+    }
+    blit_bitmap(pixels, stride, limit_w, limit_h, x, y, px, text, r, g, b);
+}
+
+void xr_ui_upload(GLuint* tex, const uint8_t* pixels, int width, int height) {
+    upload_ui_texture(tex, pixels, width, height);
 }

@@ -16,7 +16,8 @@
 #include <openxr/openxr_platform.h>
 
 #define XR_MAX_VIEWS 2
-#define XR_MAX_SCREENS 8
+#define XR_MAX_SCREENS 9
+#define XR_KEYBOARD_SLOT 8
 #define XR_MAX_ROWS 12
 #define XR_ROW_CHARS 48
 #define XR_MENU_W 1024
@@ -33,7 +34,8 @@ typedef struct XrFontGlyph {
 enum {
     XR_SCREEN_STAGE = 0,
     XR_SCREEN_MENU = 1,
-    XR_SCREEN_CLONE = 2
+    XR_SCREEN_CLONE = 2,
+    XR_SCREEN_KEYBOARD = 3
 };
 
 enum {
@@ -44,7 +46,8 @@ enum {
     XR_ACT_EXIT = 5,
     XR_ACT_PC = 6,
     XR_ACT_APP = 7,
-    XR_ACT_BACK = 8
+    XR_ACT_BACK = 8,
+    XR_ACT_KEYBOARD = 9
 };
 
 enum {
@@ -173,6 +176,7 @@ typedef struct XrApp {
     float hand_v[2];
     XrVector3f hand_point[2];
     int hand_menu_hit[2];
+    int hand_key[2];
     int menu_hover_hit;
     int squeeze_held[2];
     int trigger_held[2];
@@ -196,6 +200,8 @@ typedef struct XrApp {
     int hit_count;
     GLuint menu_tex;
     uint8_t* menu_pixels;
+    GLuint keyboard_tex;
+    int keyboard_alt;
 
     int passthrough_on;
     int passthrough_supported;
@@ -249,6 +255,26 @@ int xr_jni_load_glyph_atlas(uint8_t** pixels, int* width, int* height, int* asce
 
 void xr_jni_post_pick(int action, int arg);
 void xr_jni_post_pointer(int phase, float u, float v, int button);
+void xr_jni_post_key(int key_code, int action, int modifiers);
+void xr_jni_reload_keyboard(void);
+
+void xr_screens_set_status(const char* text);
+void xr_ui_prepare(void);
+int xr_ui_font_ready(void);
+int xr_ui_measure(const char* text, int px);
+void xr_ui_string(uint8_t* pixels, int stride, int limit_w, int limit_h, int x, int y, int px, const char* text,
+                  uint8_t r, uint8_t g, uint8_t b);
+void xr_ui_upload(GLuint* tex, const uint8_t* pixels, int width, int height);
+
+void xr_keyboard_init(void);
+void xr_keyboard_destroy(void);
+void xr_keyboard_submit(const char* text, int length);
+void xr_keyboard_build_pending(void);
+void xr_keyboard_toggle(void);
+int xr_keyboard_pick(float u, float v);
+void xr_keyboard_press(int hand, int key, int orange, int purple);
+void xr_keyboard_sustain(int hand);
+void xr_keyboard_paint_if_needed(void);
 void xr_jni_bind_video_texture(int tex_id);
 int xr_jni_pull_video_frame(float matrix[16]);
 void xr_jni_release_video(void);

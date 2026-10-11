@@ -19,6 +19,7 @@ public final class MoonlightXr {
     public static final int ACT_PC = 6;
     public static final int ACT_APP = 7;
     public static final int ACT_BACK = 8;
+    public static final int ACT_KEYBOARD = 9;
 
     static {
         System.loadLibrary("moonlight-xr");
@@ -38,6 +39,8 @@ public final class MoonlightXr {
     public static native void nativeSetStatus(String status);
 
     public static native void nativeClearVideo();
+
+    public static native void nativeSetKeyboard(String config);
 
     /**
      * Anti-aliased atlas for ASCII 32..126. The native UI blits this instead of

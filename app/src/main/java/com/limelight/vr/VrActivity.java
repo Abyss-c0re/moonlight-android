@@ -110,8 +110,15 @@ public class VrActivity extends Activity {
                 return;
             }
             MoonlightXr.nativeSetStatus(HINT);
+            VrKeyboard.apply(this);
         }
         startComputerUpdates();
+    }
+
+    /** Called on the OpenXR thread when the keyboard is shown, so an edited file is picked up. */
+    @SuppressWarnings("unused")
+    public void reloadKeyboardConfig() {
+        VrKeyboard.apply(this);
     }
 
     @Override
@@ -153,6 +160,11 @@ public class VrActivity extends Activity {
     @SuppressWarnings("unused")
     public void onPointer(int phase, float u, float v, int button) {
         streamHost.onPointer(phase, u, v, button);
+    }
+
+    @SuppressWarnings("unused")
+    public void onKeyboard(int keyCode, int action, int modifiers) {
+        streamHost.onKeyboard(keyCode, action, modifiers);
     }
 
     public void onVideoTexture(int texId) {

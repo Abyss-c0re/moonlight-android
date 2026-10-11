@@ -329,7 +329,13 @@ static void xr_draw_lasers(const XrMatrix4x4f* vp) {
         };
         glUseProgram(g_xr.prog_solid);
         glUniformMatrix4fv(g_xr.loc_solid_mvp, 1, GL_FALSE, vp->m);
-        if (g_xr.hand_hit[hand]) {
+        int on_keys = g_xr.hand_hit[hand] && g_xr.hand_hover[hand] >= 0 &&
+                      g_xr.screens[g_xr.hand_hover[hand]].kind == XR_SCREEN_KEYBOARD;
+        if (on_keys && g_xr.stick_click[hand]) {
+            glUniform4f(g_xr.loc_solid_color, 0.95f, 0.55f, 0.12f, 1.0f);
+        } else if (on_keys && g_xr.stick_click[hand ^ 1] && g_xr.keyboard_alt != 0) {
+            glUniform4f(g_xr.loc_solid_color, 0.62f, 0.35f, 0.95f, 1.0f);
+        } else if (g_xr.hand_hit[hand]) {
             glUniform4f(g_xr.loc_solid_color, 0.35f, 0.95f, 0.75f, 1.0f);
         } else {
             glUniform4f(g_xr.loc_solid_color, 0.85f, 0.30f, 0.25f, 1.0f);
@@ -390,8 +396,8 @@ void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height)
 
         int count = xr_panel_mesh(mesh, 32 * 6, screen->width, screen->height, screen->curve);
         xr_mvp(&mvp, &vp, &screen->pose, 0.0f);
-        int show_video = screen->kind != XR_SCREEN_MENU && g_xr.video_ready && video_epoch == video_seen &&
-                         g_xr.video_tex != 0 && g_xr.prog_video != 0;
+        int show_video = screen->kind != XR_SCREEN_MENU && screen->kind != XR_SCREEN_KEYBOARD && g_xr.video_ready &&
+                         video_epoch == video_seen && g_xr.video_tex != 0 && g_xr.prog_video != 0;
         if (show_video) {
             glUseProgram(g_xr.prog_video);
             glUniformMatrix4fv(g_xr.loc_video_mvp, 1, GL_FALSE, mvp.m);
@@ -401,7 +407,12 @@ void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height)
             xr_draw(g_xr.prog_video, mesh, count, GL_TRIANGLES, 1);
             continue;
         }
-        GLuint texture = screen->kind == XR_SCREEN_MENU ? g_xr.menu_tex : g_xr.placeholder_tex;
+        GLuint texture = g_xr.placeholder_tex;
+        if (screen->kind == XR_SCREEN_MENU) {
+            texture = g_xr.menu_tex;
+        } else if (screen->kind == XR_SCREEN_KEYBOARD) {
+            texture = g_xr.keyboard_tex;
+        }
         if (texture == 0 || g_xr.prog_tex == 0) {
             continue;
         }

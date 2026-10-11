@@ -22,6 +22,7 @@ import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
+import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
@@ -200,6 +201,21 @@ final class VrStreamHost {
         } else if (phase == PTR_UP) {
             current.sendMouseButtonUp(mouseButton);
         }
+    }
+
+    void onKeyboard(int keyCode, int action, int modifiers) {
+        NvConnection current;
+        synchronized (gate) {
+            if (conn == null || inputToken == 0 || inputToken != publishedToken) {
+                return;
+            }
+            current = conn;
+        }
+        if (keyCode == 0) {
+            return;
+        }
+        byte direction = action == KeyboardPacket.KEY_UP ? KeyboardPacket.KEY_UP : KeyboardPacket.KEY_DOWN;
+        current.sendKeyboardInput((short) keyCode, direction, (byte) modifiers, (byte) 0);
     }
 
     private boolean sameStream(String uuid, int appId) {
