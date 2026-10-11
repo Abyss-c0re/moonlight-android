@@ -184,13 +184,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean keepStreamOnLeave;
     private boolean userPausedStream;
     private boolean streamNotificationVisible;
-    private final AudioManager.OnAudioFocusChangeListener streamAudioFocusListener =
-            new AudioManager.OnAudioFocusChangeListener() {
-                @Override
-                public void onAudioFocusChange(int focusChange) {
-                    // Android audio focus is not a reason to pause or stop the stream.
-                }
-            };
     private int suppressPipRefCount = 0;
 
     // Used to disable input after the stream has ended (e.g. because another
@@ -1169,7 +1162,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
         else {
             dismissStreamNotification();
-            abandonStreamAudioFocus();
         }
         super.onDestroy();
 
@@ -2648,23 +2640,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         return getString(R.string.stream_notification_title);
     }
 
-    private void requestStreamAudioFocus() {
-        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        if (audioManager == null) {
-            return;
-        }
-        audioManager.requestAudioFocus(streamAudioFocusListener,
-                AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-    }
-
-    private void abandonStreamAudioFocus() {
-        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        if (audioManager == null) {
-            return;
-        }
-        audioManager.abandonAudioFocus(streamAudioFocusListener);
-    }
-
     private void showStreamNotification() {
         if (isFinishing()) {
             return;
@@ -2681,10 +2656,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             else {
                 startService(intent);
             }
+            // Do not take audio focus. GAIN pauses whatever music is already playing.
             streamNotificationVisible = true;
-            if (!userPausedStream) {
-                requestStreamAudioFocus();
-            }
         } catch (IllegalStateException e) {
             LimeLog.warning("Could not post the stream notification: " + e.getMessage());
         }
@@ -2720,7 +2693,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (decoderRenderer != null) {
                     decoderRenderer.setRenderSuppressed(true);
                 }
-                abandonStreamAudioFocus();
                 showStreamNotification();
             }
         });
@@ -2738,7 +2710,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (decoderRenderer != null) {
                     decoderRenderer.setRenderSuppressed(false);
                 }
-                requestStreamAudioFocus();
                 if (keepStreamOnLeave && !isFinishing()) {
                     showStreamNotification();
                 }
@@ -2770,7 +2741,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private void stopConnection() {
         dismissStreamNotification();
-        abandonStreamAudioFocus();
         keepStreamOnLeave = false;
         userPausedStream = false;
         if (connecting || connected) {
