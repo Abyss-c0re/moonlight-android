@@ -212,13 +212,32 @@ static int xr_create_system(void) {
         return 0;
     }
 
+    g_xr.fb_supports_passthrough = 0;
+    XrSystemPassthroughPropertiesFB passthrough_props;
+    memset(&passthrough_props, 0, sizeof(passthrough_props));
+    passthrough_props.type = XR_TYPE_SYSTEM_PASSTHROUGH_PROPERTIES_FB;
+
     XrSystemProperties properties;
     memset(&properties, 0, sizeof(properties));
     properties.type = XR_TYPE_SYSTEM_PROPERTIES;
-    if (xr_check(xrGetSystemProperties(g_xr.instance, g_xr.system_id, &properties), "xrGetSystemProperties")) {
+    if (g_xr.ext_fb_passthrough) {
+        properties.next = &passthrough_props;
+    }
+    XrResult properties_result = xrGetSystemProperties(g_xr.instance, g_xr.system_id, &properties);
+    if (XR_FAILED(properties_result) && g_xr.ext_fb_passthrough) {
+        properties.next = NULL;
+        properties_result = xrGetSystemProperties(g_xr.instance, g_xr.system_id, &properties);
+    }
+    if (XR_SUCCEEDED(properties_result)) {
         strncpy(g_xr.system_name, properties.systemName, sizeof(g_xr.system_name) - 1);
-        __android_log_print(ANDROID_LOG_INFO, "moonlight-xr", "OpenXR system %s vendor %u",
-                            g_xr.system_name, (unsigned)properties.vendorId);
+        g_xr.system_name[sizeof(g_xr.system_name) - 1] = '\0';
+        if (properties.next != NULL) {
+            g_xr.fb_supports_passthrough = passthrough_props.supportsPassthrough == XR_TRUE;
+        }
+        __android_log_print(ANDROID_LOG_INFO, "moonlight-xr", "OpenXR system %s vendor %u passthrough %d",
+                            g_xr.system_name, (unsigned)properties.vendorId, g_xr.fb_supports_passthrough);
+    } else {
+        xr_log_result(properties_result, "xrGetSystemProperties");
     }
     return 1;
 }

@@ -1,6 +1,7 @@
 #include "xr_internal.h"
 
 void xr_world_init(void) {
+    xr_passthrough_init();
     xr_render_init();
     xr_input_init();
     xr_screens_init();
@@ -10,6 +11,7 @@ void xr_world_destroy(void) {
     xr_screens_destroy();
     xr_input_destroy();
     xr_render_destroy();
+    xr_passthrough_destroy();
 }
 
 void xr_world_update(XrTime display_time, XrDuration period) {
@@ -22,14 +24,13 @@ void xr_world_render(const XrView* view, int eye, uint32_t width, uint32_t heigh
 }
 
 XrEnvironmentBlendMode xr_world_blend_mode(void) {
-    return g_xr.blend_mode;
+    return xr_passthrough_blend_mode();
 }
 
 XrCompositionLayerFlags xr_world_layer_flags(void) {
-    return 0;
+    return xr_passthrough_layer_flags();
 }
 
 int xr_world_push_underlays(const XrCompositionLayerBaseHeader** layers, int count) {
-    (void)layers;
-    return count;
+    return xr_passthrough_push_underlay(layers, count);
 }

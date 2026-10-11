@@ -188,6 +188,7 @@ typedef struct XrApp {
 
     int passthrough_on;
     int passthrough_supported;
+    int fb_supports_passthrough;
 
     GLuint prog_solid;
     GLuint prog_tex;
@@ -223,5 +224,12 @@ void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height)
 
 void xr_jni_post_pick(int action, int arg);
 void xr_jni_post_pointer(int phase, float u, float v, int button);
+
+void xr_passthrough_init(void);
+void xr_passthrough_destroy(void);
+int xr_passthrough_toggle(void);
+XrEnvironmentBlendMode xr_passthrough_blend_mode(void);
+XrCompositionLayerFlags xr_passthrough_layer_flags(void);
+int xr_passthrough_push_underlay(const XrCompositionLayerBaseHeader** layers, int count);
 
 #endif

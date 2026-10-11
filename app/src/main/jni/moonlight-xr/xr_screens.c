@@ -146,6 +146,17 @@ static void reset_layout(void) {
     set_status("Screens reset");
 }
 
+static void toggle_passthrough(void) {
+    int state = xr_passthrough_toggle();
+    if (state < 0) {
+        set_status("Passthrough is unavailable");
+    } else if (state) {
+        set_status("Passthrough on");
+    } else {
+        set_status("Passthrough off");
+    }
+}
+
 static void activate(const XrHit* hit) {
     switch (hit->action) {
         case XR_ACT_SPAWN:
@@ -156,6 +167,9 @@ static void activate(const XrHit* hit) {
             break;
         case XR_ACT_RESET:
             reset_layout();
+            break;
+        case XR_ACT_PASSTHROUGH:
+            toggle_passthrough();
             break;
         case XR_ACT_EXIT:
             g_xr.quit = 1;
@@ -266,7 +280,7 @@ static void add_hit(int x, int y, int w, int h, int action, int arg) {
 static void draw_button(int y, const char* label, int action) {
     int x = 16;
     int w = XR_MENU_W - 32;
-    int h = 52;
+    int h = 44;
     int hover = g_xr.hit_count == g_xr.menu_hover_hit;
     if (hover) {
         fill_rect(x, y, w, h, 30, 90, 110);
@@ -275,7 +289,7 @@ static void draw_button(int y, const char* label, int action) {
     }
     fill_rect(x, y, w, 2, 70, 150, 170);
     int width = text_width(label, 2);
-    draw_string(x + (w - width) / 2, y + 18, 2, label, 230, 240, 245);
+    draw_string(x + (w - width) / 2, y + 14, 2, label, 230, 240, 245);
     add_hit(x, y, w, h, action, 0);
 }
 
@@ -305,26 +319,27 @@ static void rebuild_menu(void) {
     draw_string((XR_MENU_W - title_w) / 2, 14, 2, "MOONLIGHT VR", 220, 230, 240);
     draw_string(16, 44, 1, status, 150, 165, 180);
 
-    draw_button(72, "Spawn", XR_ACT_SPAWN);
-    draw_button(132, "Close", XR_ACT_CLOSE);
-    draw_button(192, "Reset", XR_ACT_RESET);
+    draw_button(68, "Spawn", XR_ACT_SPAWN);
+    draw_button(114, "Close", XR_ACT_CLOSE);
+    draw_button(160, "Reset", XR_ACT_RESET);
+    draw_button(206, "Passthrough", XR_ACT_PASSTHROUGH);
     draw_button(252, "Exit to app", XR_ACT_EXIT);
-    draw_string(16, 312, 1, "LIBRARY", 120, 140, 160);
+    draw_string(16, 304, 1, "LIBRARY", 120, 140, 160);
 
-    int row_y = 328;
+    int row_y = 322;
     for (int i = 0; i < row_count; i++) {
         int x = 16;
         int w = XR_MENU_W - 32;
-        int h = 32;
+        int h = 30;
         int hover = g_xr.hit_count == g_xr.menu_hover_hit;
         if (hover) {
             fill_rect(x, row_y, w, h, 24, 70, 88);
         } else {
             fill_rect(x, row_y, w, h, 20, 24, 32);
         }
-        draw_string(28, row_y + 12, 1, rows[i].label, 220, 228, 235);
+        draw_string(28, row_y + 11, 1, rows[i].label, 220, 228, 235);
         add_hit(x, row_y, w, h, rows[i].kind, rows[i].id);
-        row_y += 34;
+        row_y += 32;
         if (row_y >= XR_MENU_H - 8) {
             break;
         }
@@ -670,6 +685,9 @@ static void update_pointer(XrTime time) {
 static void update_buttons(void) {
     if ((g_xr.btn_a && !g_xr.was_a) || (g_xr.btn_x && !g_xr.was_x)) {
         spawn_screen();
+    }
+    if ((g_xr.btn_b && !g_xr.was_b) || (g_xr.btn_y && !g_xr.was_y)) {
+        toggle_passthrough();
     }
     if (g_xr.btn_menu && !g_xr.was_menu && g_xr.screens[1].alive) {
         g_xr.screens[1].visible = !g_xr.screens[1].visible;
