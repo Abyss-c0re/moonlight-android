@@ -666,7 +666,8 @@ static void update_pointer(XrTime time) {
             continue;
         }
         g_xr.last_scroll_time = time;
-        xr_jni_post_pointer(XR_PTR_SCROLL, g_xr.hand_u[hand], g_xr.stick_y[hand], 0);
+        xr_jni_post_pointer(XR_PTR_SCROLL, g_xr.hand_u[hand], g_xr.hand_v[hand],
+                            g_xr.stick_y[hand] > 0.0f ? 1 : -1);
         break;
     }
 

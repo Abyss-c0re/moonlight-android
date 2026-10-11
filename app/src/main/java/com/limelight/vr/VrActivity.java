@@ -26,13 +26,14 @@ import java.util.LinkedList;
 
 /**
  * OpenXR activity started from the PC-list VR button. Inside the headset the
- * menu lists paired PCs and their apps. Choosing an app names it on the panel
- * until streaming is connected.
+ * menu lists paired PCs and their apps. Choosing an app streams it onto the
+ * movable screens. Exit to app stops that stream and returns to the 2D app.
  * System overlays pause the activity without tearing the session down.
- * Back, and Exit to app, return to the 2D app.
  */
 public class VrActivity extends Activity {
     private static final String HINT = "Grip moves  |  A/X spawns  |  menu shows this panel";
+
+    private final VrStreamHost streamHost = new VrStreamHost();
 
     private boolean started;
     private boolean xrReady;
@@ -47,6 +48,7 @@ public class VrActivity extends Activity {
     private final ArrayList<ComputerDetails> computers = new ArrayList<>();
     private final ArrayList<ComputerDetails> shownPcs = new ArrayList<>();
     private final ArrayList<NvApp> shownApps = new ArrayList<>();
+    private ComputerDetails listedPc;
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -81,6 +83,7 @@ public class VrActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        streamHost.attach(this);
         inForeground = true;
         setContentView(new View(this));
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -122,6 +125,7 @@ public class VrActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        streamHost.stop();
         if (runningPolling) {
             stopComputerUpdates();
         }
@@ -147,6 +151,22 @@ public class VrActivity extends Activity {
     }
 
     @SuppressWarnings("unused")
+    public void onPointer(int phase, float u, float v, int button) {
+        streamHost.onPointer(phase, u, v, button);
+    }
+
+    public void onVideoTexture(int texId) {
+        streamHost.attachTexture(texId);
+    }
+
+    public int onVideoFrame(float[] matrix) {
+        return streamHost.pullFrame(matrix);
+    }
+
+    public void onVideoRelease() {
+        streamHost.releaseSurface();
+    }
+
     public void onLibraryPick(final int action, final int id) {
         runOnUiThread(new Runnable() {
             @Override
@@ -237,14 +257,18 @@ public class VrActivity extends Activity {
         pushLibrary(labels, kinds, ids);
         if (shownPcs.isEmpty()) {
             if (!announcedEmpty) {
-                MoonlightXr.nativeSetStatus("No paired PCs online");
+                if (!streamHost.isActive()) {
+                    MoonlightXr.nativeSetStatus("No paired PCs online");
+                }
                 announcedEmpty = true;
             }
             return;
         }
         if (announcedEmpty) {
             announcedEmpty = false;
-            MoonlightXr.nativeSetStatus(HINT);
+            if (!streamHost.isActive()) {
+                MoonlightXr.nativeSetStatus(HINT);
+            }
         }
     }
 
@@ -287,7 +311,7 @@ public class VrActivity extends Activity {
             shownApps.clear();
             publishedKey = "*";
             publishPcs();
-            if (!shownPcs.isEmpty()) {
+            if (!shownPcs.isEmpty() && !streamHost.isActive()) {
                 MoonlightXr.nativeSetStatus(HINT);
             }
         }
@@ -298,6 +322,7 @@ public class VrActivity extends Activity {
             MoonlightXr.nativeSetStatus("That PC is offline");
             return;
         }
+        listedPc = computer;
         if (managerBinder == null) {
             MoonlightXr.nativeSetStatus("App list failed");
             return;
@@ -373,7 +398,10 @@ public class VrActivity extends Activity {
     }
 
     private void openApp(NvApp app) {
-        String name = app.getAppName();
-        MoonlightXr.nativeSetStatus(name != null && name.length() > 0 ? name : "App");
+        if (listedPc == null || managerBinder == null) {
+            MoonlightXr.nativeSetStatus("Stream failed");
+            return;
+        }
+        streamHost.open(this, listedPc, app, managerBinder.getUniqueId());
     }
 }

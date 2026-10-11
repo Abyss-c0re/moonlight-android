@@ -89,6 +89,36 @@ static const char* k_tex_frag =
         "out vec4 frag;\n"
         "void main(){ frag = texture(uTex, vec2(vUv.x, 1.0 - vUv.y)); }\n";
 
+/* vUv matches the mesh (v = 0 at the bottom). SurfaceTexture's matrix puts the
+ * picture upright, so this path does not flip v again. Alpha is forced on so
+ * passthrough does not show through the desktop. */
+static const char* k_video_frag =
+        "#version 300 es\n"
+        "#extension GL_OES_EGL_image_external_essl3 : require\n"
+        "precision mediump float;\n"
+        "in vec2 vUv;\n"
+        "uniform samplerExternalOES uTex;\n"
+        "uniform mat4 uTexMat;\n"
+        "out vec4 frag;\n"
+        "void main(){\n"
+        "  vec4 color = texture(uTex, (uTexMat * vec4(vUv, 0.0, 1.0)).xy);\n"
+        "  frag = vec4(color.rgb, 1.0);\n"
+        "}\n";
+
+static void xr_matrix_identity(float m[16]) {
+    memset(m, 0, sizeof(float) * 16);
+    m[0] = m[5] = m[10] = m[15] = 1.0f;
+}
+
+static void xr_configure_video_texture(void) {
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_xr.video_tex);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+}
+
 static void xr_draw(GLuint program, const XrVert* verts, int count, GLenum mode, int textured) {
     if (program == 0 || count <= 0) {
         return;
@@ -208,6 +238,7 @@ static void xr_make_placeholder(void) {
 void xr_render_init(void) {
     g_xr.prog_solid = xr_program(k_solid_vert, k_solid_frag);
     g_xr.prog_tex = xr_program(k_tex_vert, k_tex_frag);
+    g_xr.prog_video = xr_program(k_tex_vert, k_video_frag);
     if (g_xr.prog_solid != 0) {
         g_xr.loc_solid_mvp = glGetUniformLocation(g_xr.prog_solid, "uMvp");
         g_xr.loc_solid_color = glGetUniformLocation(g_xr.prog_solid, "uColor");
@@ -217,12 +248,45 @@ void xr_render_init(void) {
         glUseProgram(g_xr.prog_tex);
         glUniform1i(glGetUniformLocation(g_xr.prog_tex, "uTex"), 0);
     }
+    if (g_xr.prog_video != 0) {
+        g_xr.loc_video_mvp = glGetUniformLocation(g_xr.prog_video, "uMvp");
+        g_xr.loc_video_mat = glGetUniformLocation(g_xr.prog_video, "uTexMat");
+        glUseProgram(g_xr.prog_video);
+        glUniform1i(glGetUniformLocation(g_xr.prog_video, "uTex"), 0);
+    }
     glGenVertexArrays(1, &g_xr.vao);
     glGenBuffers(1, &g_xr.vbo);
     xr_make_placeholder();
+    xr_matrix_identity(g_xr.video_matrix);
+    g_xr.video_ready = 0;
+    glGenTextures(1, &g_xr.video_tex);
+    if (g_xr.video_tex != 0) {
+        xr_configure_video_texture();
+        xr_jni_bind_video_texture((int)g_xr.video_tex);
+        xr_configure_video_texture();
+    }
+}
+
+void xr_video_begin_frame(void) {
+    if (g_xr.video_tex == 0) {
+        return;
+    }
+    int epoch = __atomic_load_n(&g_xr.video_epoch, __ATOMIC_ACQUIRE);
+    int state = xr_jni_pull_video_frame(g_xr.video_matrix);
+    if (state > 0) {
+        int epoch_after = __atomic_load_n(&g_xr.video_epoch, __ATOMIC_ACQUIRE);
+        if (epoch == epoch_after) {
+            __atomic_store_n(&g_xr.video_epoch_seen, epoch, __ATOMIC_RELEASE);
+            g_xr.video_ready = 1;
+        }
+    } else if (state < 0) {
+        g_xr.video_ready = 0;
+    }
 }
 
 void xr_render_destroy(void) {
+    xr_jni_release_video();
+    g_xr.video_ready = 0;
     if (g_xr.prog_solid != 0) {
         glDeleteProgram(g_xr.prog_solid);
         g_xr.prog_solid = 0;
@@ -230,6 +294,14 @@ void xr_render_destroy(void) {
     if (g_xr.prog_tex != 0) {
         glDeleteProgram(g_xr.prog_tex);
         g_xr.prog_tex = 0;
+    }
+    if (g_xr.prog_video != 0) {
+        glDeleteProgram(g_xr.prog_video);
+        g_xr.prog_video = 0;
+    }
+    if (g_xr.video_tex != 0) {
+        glDeleteTextures(1, &g_xr.video_tex);
+        g_xr.video_tex = 0;
     }
     if (g_xr.vbo != 0) {
         glDeleteBuffers(1, &g_xr.vbo);
@@ -320,6 +392,8 @@ void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height)
     }
 
     XrVert mesh[32 * 6];
+    int video_epoch = __atomic_load_n(&g_xr.video_epoch, __ATOMIC_ACQUIRE);
+    int video_seen = __atomic_load_n(&g_xr.video_epoch_seen, __ATOMIC_ACQUIRE);
     for (int index = 0; index < XR_MAX_SCREENS; index++) {
         XrScreen* screen = &g_xr.screens[index];
         if (!screen->alive || !screen->visible) {
@@ -344,6 +418,17 @@ void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height)
 
         int count = xr_panel_mesh(mesh, 32 * 6, screen->width, screen->height, screen->curve);
         xr_mvp(&mvp, &vp, &screen->pose, 0.0f);
+        int show_video = screen->kind != XR_SCREEN_MENU && g_xr.video_ready && video_epoch == video_seen &&
+                         g_xr.video_tex != 0 && g_xr.prog_video != 0;
+        if (show_video) {
+            glUseProgram(g_xr.prog_video);
+            glUniformMatrix4fv(g_xr.loc_video_mvp, 1, GL_FALSE, mvp.m);
+            glUniformMatrix4fv(g_xr.loc_video_mat, 1, GL_FALSE, g_xr.video_matrix);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_EXTERNAL_OES, g_xr.video_tex);
+            xr_draw(g_xr.prog_video, mesh, count, GL_TRIANGLES, 1);
+            continue;
+        }
         GLuint texture = screen->kind == XR_SCREEN_MENU ? g_xr.menu_tex : g_xr.placeholder_tex;
         if (texture == 0 || g_xr.prog_tex == 0) {
             continue;

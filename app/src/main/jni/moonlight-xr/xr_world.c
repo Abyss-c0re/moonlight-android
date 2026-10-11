@@ -15,6 +15,7 @@ void xr_world_destroy(void) {
 }
 
 void xr_world_update(XrTime display_time, XrDuration period) {
+    xr_video_begin_frame();
     xr_input_sync(display_time);
     xr_screens_update(display_time, period);
 }

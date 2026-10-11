@@ -26,4 +26,6 @@ public final class MoonlightXr {
     public static native void nativeSetLibrary(String[] labels, int[] kinds, int[] ids);
 
     public static native void nativeSetStatus(String status);
+
+    public static native void nativeClearVideo();
 }

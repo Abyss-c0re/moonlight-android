@@ -135,3 +135,98 @@ Java_com_limelight_vr_MoonlightXr_nativeSetStatus(JNIEnv* env, jclass clazz, jst
         (*env)->ReleaseStringUTFChars(env, status, utf);
     }
 }
+
+static jmethodID video_texture_method;
+static jmethodID video_frame_method;
+static jmethodID video_release_method;
+static jfloatArray video_matrix_array;
+static int video_methods_ready;
+
+static jmethodID xr_activity_method(JNIEnv* env, const char* name, const char* sig) {
+    jclass cls = (*env)->GetObjectClass(env, g_xr.activity);
+    if (cls == NULL) {
+        return NULL;
+    }
+    jmethodID method = (*env)->GetMethodID(env, cls, name, sig);
+    if (method == NULL) {
+        (*env)->ExceptionClear(env);
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "VrActivity.%s%s is missing", name, sig);
+    }
+    (*env)->DeleteLocalRef(env, cls);
+    return method;
+}
+
+static int xr_video_methods(JNIEnv* env) {
+    if (video_methods_ready) {
+        return video_frame_method != NULL && video_texture_method != NULL && video_release_method != NULL;
+    }
+    if (g_xr.activity == NULL) {
+        return 0;
+    }
+    video_methods_ready = 1;
+    video_texture_method = xr_activity_method(env, "onVideoTexture", "(I)V");
+    video_frame_method = xr_activity_method(env, "onVideoFrame", "([F)I");
+    video_release_method = xr_activity_method(env, "onVideoRelease", "()V");
+    return video_frame_method != NULL && video_texture_method != NULL && video_release_method != NULL;
+}
+
+void xr_jni_bind_video_texture(int tex_id) {
+    JNIEnv* env = xr_env();
+    if (env == NULL || !xr_video_methods(env)) {
+        return;
+    }
+    (*env)->CallVoidMethod(env, g_xr.activity, video_texture_method, (jint)tex_id);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+}
+
+int xr_jni_pull_video_frame(float matrix[16]) {
+    JNIEnv* env = xr_env();
+    if (matrix == NULL || env == NULL || !xr_video_methods(env)) {
+        return -1;
+    }
+    if (video_matrix_array == NULL) {
+        jfloatArray local = (*env)->NewFloatArray(env, 16);
+        if (local == NULL) {
+            (*env)->ExceptionClear(env);
+            return 0;
+        }
+        video_matrix_array = (*env)->NewGlobalRef(env, local);
+        (*env)->DeleteLocalRef(env, local);
+        if (video_matrix_array == NULL) {
+            return 0;
+        }
+    }
+    jint state = (*env)->CallIntMethod(env, g_xr.activity, video_frame_method, video_matrix_array);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        return 0;
+    }
+    if (state > 0) {
+        (*env)->GetFloatArrayRegion(env, video_matrix_array, 0, 16, matrix);
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionClear(env);
+            return 0;
+        }
+    }
+    return (int)state;
+}
+
+void xr_jni_release_video(void) {
+    JNIEnv* env = xr_env();
+    if (env == NULL || g_xr.activity == NULL || !xr_video_methods(env)) {
+        return;
+    }
+    (*env)->CallVoidMethod(env, g_xr.activity, video_release_method);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_vr_MoonlightXr_nativeClearVideo(JNIEnv* env, jclass clazz) {
+    (void)env;
+    (void)clazz;
+    __atomic_add_fetch(&g_xr.video_epoch, 1, __ATOMIC_RELEASE);
+}

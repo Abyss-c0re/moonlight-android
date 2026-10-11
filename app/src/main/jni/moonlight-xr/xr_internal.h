@@ -192,12 +192,20 @@ typedef struct XrApp {
 
     GLuint prog_solid;
     GLuint prog_tex;
+    GLuint prog_video;
     GLint loc_solid_mvp;
     GLint loc_solid_color;
     GLint loc_tex_mvp;
+    GLint loc_video_mvp;
+    GLint loc_video_mat;
     GLuint vbo;
     GLuint vao;
     GLuint placeholder_tex;
+    GLuint video_tex;
+    int video_ready;
+    int video_epoch;
+    int video_epoch_seen;
+    float video_matrix[16];
 } XrApp;
 
 extern XrApp g_xr;
@@ -221,9 +229,13 @@ void xr_screens_update(XrTime display_time, XrDuration period);
 void xr_render_init(void);
 void xr_render_destroy(void);
 void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height);
+void xr_video_begin_frame(void);
 
 void xr_jni_post_pick(int action, int arg);
 void xr_jni_post_pointer(int phase, float u, float v, int button);
+void xr_jni_bind_video_texture(int tex_id);
+int xr_jni_pull_video_frame(float matrix[16]);
+void xr_jni_release_video(void);
 
 void xr_passthrough_init(void);
 void xr_passthrough_destroy(void);
