@@ -38,6 +38,13 @@
     <uses-feature
         android:name="android.hardware.sensor.gyroscope"
         android:required="false" />
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="false"
+        android:version="1" />
+    <uses-feature
+        android:name="com.oculus.feature.PASSTHROUGH"
+        android:required="false" />
 
     <!-- Disable legacy input emulation on ChromeOS -->
     <uses-feature
@@ -105,6 +112,28 @@
                 <category android:name="android.intent.category.MULTIWINDOW_LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
                 <category android:name="tv.ouya.intent.category.APP" />
+                <!-- Keeps Quest on the 2D panel when an immersive activity also exists. -->
+                <category android:name="com.oculus.intent.category.2D" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".vr.VrActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density">
+            <meta-data
+                android:name="com.oculus.vr.focusaware"
+                android:value="true" />
+            <meta-data
+                android:name="pvr.app.type"
+                android:value="3d" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="com.oculus.intent.category.VR" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
             </intent-filter>
         </activity>
         <!-- Small hack to support launcher shortcuts without relaunching over and over again when the back button is pressed -->
@@ -285,5 +314,14 @@
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
         </activity>
     </application>
+
+    <queries>
+        <package android:name="org.khronos.openxr.runtime_broker" />
+        <provider android:authorities="org.khronos.openxr.runtime_broker" />
+        <provider android:authorities="org.khronos.openxr.system_runtime_broker" />
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRRuntimeService" />
+        </intent>
+    </queries>
 
 </manifest>

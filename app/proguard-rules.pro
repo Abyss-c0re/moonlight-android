@@ -7,6 +7,9 @@
 # Moonlight common
 -keep class com.limelight.nvstream.jni.* {*;}
 
+# OpenXR VR mode. Native code calls these methods by name.
+-keep class com.limelight.vr.** { *; }
+
 # Okio
 -keep class sun.misc.Unsafe {*;}
 -dontwarn java.nio.file.*

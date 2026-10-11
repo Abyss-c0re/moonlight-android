@@ -12,8 +12,9 @@ include $(PREBUILT_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := moonlight-xr
-LOCAL_SRC_FILES := moonlight_xr_stub.c
-LOCAL_C_INCLUDES := $(LOCAL_PATH)/third_party/openxr/include
+LOCAL_SRC_FILES := xr_jni.c xr_session.c xr_world.c
+LOCAL_C_INCLUDES := $(LOCAL_PATH) $(LOCAL_PATH)/third_party/openxr/include
 LOCAL_SHARED_LIBRARIES := openxr_loader
-LOCAL_LDLIBS := -llog
+LOCAL_LDLIBS := -llog -lEGL -lGLESv3 -landroid
+LOCAL_CFLAGS := -std=c11 -Wall -Wno-unused-function
 include $(BUILD_SHARED_LIBRARY)
