@@ -4,6 +4,7 @@
 #include "xr_linear.h"
 #include "font8x8_basic.h"
 
+#include <android/log.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +12,7 @@
 /* Bitmap row 0 is the top of the panel. The texture shader flips v, and a hit
  * uses py = (1 - v) * height so the title at row 0 stays at the top. */
 
-static const char* k_hint = "Grip moves  |  A/X spawns  |  menu shows this panel";
+static const char* k_hint = "Pick a PC here. Grip moves. A/X adds a monitor.";
 
 static void set_status(const char* text) {
     pthread_mutex_lock(&g_xr.lib_mu);
@@ -40,7 +41,7 @@ static void make_screen(XrScreen* screen, int kind, int locked, float width, flo
 }
 
 static void place_default(void) {
-    make_screen(&g_xr.screens[0], XR_SCREEN_STAGE, 1, 1.80f, 1.80f * 9.0f / 16.0f, 2.5f);
+    make_screen(&g_xr.screens[0], XR_SCREEN_STAGE, 1, 1.80f, 1.80f * 9.0f / 16.0f, 0.0f);
     xr_geom_face(&g_xr.screens[0].pose, &g_xr.head_pose, 2.35f, 0.0f);
     make_screen(&g_xr.screens[1], XR_SCREEN_MENU, 1, 0.72f, 1.08f, 0.0f);
     xr_geom_face(&g_xr.screens[1].pose, &g_xr.head_pose, 2.05f, -1.40f);
@@ -51,7 +52,7 @@ static void place_default(void) {
 
 static void spawn_screen(void) {
     if (!g_xr.head_valid) {
-        set_status("Look forward, then spawn again");
+        set_status("Look forward, then add a monitor");
         return;
     }
     int slot = -1;
@@ -64,15 +65,15 @@ static void spawn_screen(void) {
         }
     }
     if (slot < 0) {
-        set_status("No free screen");
+        set_status("No free monitor");
         return;
     }
     float width = 1.35f;
-    make_screen(&g_xr.screens[slot], XR_SCREEN_CLONE, 0, width, width * 9.0f / 16.0f, 2.2f);
+    make_screen(&g_xr.screens[slot], XR_SCREEN_CLONE, 0, width, width * 9.0f / 16.0f, 0.0f);
     float right = 0.55f * (float)((clones % 3) - 1);
     float distance = 2.15f - 0.12f * (float)(clones / 3);
     xr_geom_face(&g_xr.screens[slot].pose, &g_xr.head_pose, distance, right);
-    set_status("Spawned a screen");
+    set_status("Added a monitor");
 }
 
 static void end_pointer(void) {
@@ -119,7 +120,7 @@ static void close_screen(void) {
         }
     }
     if (index < 0) {
-        set_status("No extra screen to close");
+        set_status("No extra monitor to close");
         return;
     }
     g_xr.screens[index].alive = 0;
@@ -127,7 +128,7 @@ static void close_screen(void) {
     if (g_xr.pointer_down && g_xr.pointer_screen == index) {
         end_pointer();
     }
-    set_status("Closed a screen");
+    set_status("Closed a monitor");
 }
 
 static void reset_layout(void) {
@@ -143,7 +144,7 @@ static void reset_layout(void) {
     } else {
         g_xr.layout_ready = 0;
     }
-    set_status("Screens reset");
+    set_status("Monitors reset");
 }
 
 static void toggle_passthrough(void) {
@@ -277,6 +278,121 @@ static void add_hit(int x, int y, int w, int h, int action, int arg) {
     hit->arg = arg;
 }
 
+static void face_fill(uint8_t* pixels, int stride, int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x >= XR_MONITOR_W || y >= XR_MONITOR_H || w <= 0 || h <= 0) {
+        return;
+    }
+    if (x + w > XR_MONITOR_W) {
+        w = XR_MONITOR_W - x;
+    }
+    if (y + h > XR_MONITOR_H) {
+        h = XR_MONITOR_H - y;
+    }
+    for (int row = 0; row < h; row++) {
+        uint8_t* pixel = pixels + (((y + row) * stride + x) * 4);
+        for (int col = 0; col < w; col++) {
+            pixel[0] = r;
+            pixel[1] = g;
+            pixel[2] = b;
+            pixel[3] = 255;
+            pixel += 4;
+        }
+    }
+}
+
+static void face_px(uint8_t* pixels, int stride, int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+    if ((unsigned)x >= (unsigned)XR_MONITOR_W || (unsigned)y >= (unsigned)XR_MONITOR_H) {
+        return;
+    }
+    uint8_t* pixel = pixels + ((y * stride + x) * 4);
+    pixel[0] = r;
+    pixel[1] = g;
+    pixel[2] = b;
+    pixel[3] = 255;
+}
+
+static void face_string(uint8_t* pixels, int x, int y, int scale, const char* text, uint8_t r, uint8_t g, uint8_t b) {
+    if (text == NULL || scale < 1) {
+        return;
+    }
+    int cursor = x;
+    for (const unsigned char* glyph = (const unsigned char*)text; *glyph != 0; glyph++) {
+        int code = *glyph < 128 ? *glyph : (int)'?';
+        for (int row = 0; row < 8; row++) {
+            unsigned char bits = (unsigned char)font8x8_basic[code][row];
+            for (int col = 0; col < 8; col++) {
+                if ((bits & (unsigned char)(1u << col)) == 0) {
+                    continue;
+                }
+                int px = cursor + col * scale;
+                int py = y + row * scale;
+                for (int sy = 0; sy < scale; sy++) {
+                    for (int sx = 0; sx < scale; sx++) {
+                        face_px(pixels, XR_MONITOR_W, px + sx, py + sy, r, g, b);
+                    }
+                }
+            }
+        }
+        cursor += 8 * scale;
+        if (cursor >= XR_MONITOR_W) {
+            break;
+        }
+    }
+}
+
+static void face_centered(uint8_t* pixels, int y, int scale, const char* text, uint8_t r, uint8_t g, uint8_t b) {
+    int width = text_width(text, scale);
+    face_string(pixels, (XR_MONITOR_W - width) / 2, y, scale, text, r, g, b);
+}
+
+void xr_upload_monitor_face(void) {
+    const int width = XR_MONITOR_W;
+    const int height = XR_MONITOR_H;
+    uint8_t* pixels = (uint8_t*)calloc((size_t)width * (size_t)height * 4u, 1u);
+    if (pixels == NULL) {
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "monitor face allocation failed");
+        return;
+    }
+    face_fill(pixels, width, 0, 0, width, height, 36, 40, 48);
+    face_fill(pixels, width, 6, 6, width - 12, height - 12, 12, 16, 24);
+    face_fill(pixels, width, 6, 6, width - 12, 2, 58, 68, 82);
+
+    face_centered(pixels, 186, 5, "YOUR MONITOR", 226, 234, 242);
+    face_centered(pixels, 254, 3, "The PC stream shows on this screen.", 176, 190, 204);
+    face_centered(pixels, 296, 3, "Pick a computer on the menu.", 176, 190, 204);
+    face_centered(pixels, 338, 3, "Grip moves it. A or X adds another.", 176, 190, 204);
+
+    if (g_xr.placeholder_tex != 0) {
+        glDeleteTextures(1, &g_xr.placeholder_tex);
+        g_xr.placeholder_tex = 0;
+    }
+    glGenTextures(1, &g_xr.placeholder_tex);
+    if (g_xr.placeholder_tex == 0) {
+        free(pixels);
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "monitor face texture failed");
+        return;
+    }
+    glBindTexture(GL_TEXTURE_2D, g_xr.placeholder_tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    free(pixels);
+    __android_log_print(ANDROID_LOG_INFO, "moonlight-xr", "monitor face %dx%d", width, height);
+}
+
 static void draw_button(int y, const char* label, int action) {
     int x = 16;
     int w = XR_MENU_W - 32;
@@ -318,19 +434,22 @@ static void rebuild_menu(void) {
     int title_w = text_width("MOONLIGHT VR", 2);
     draw_string((XR_MENU_W - title_w) / 2, 14, 2, "MOONLIGHT VR", 220, 230, 240);
     draw_string(16, 44, 1, status, 150, 165, 180);
+    draw_string(16, 64, 1, "Point at a computer, then an app.", 120, 140, 160);
 
-    draw_button(68, "Spawn", XR_ACT_SPAWN);
-    draw_button(114, "Close", XR_ACT_CLOSE);
-    draw_button(160, "Reset", XR_ACT_RESET);
-    draw_button(206, "Passthrough", XR_ACT_PASSTHROUGH);
-    draw_button(252, "Exit to app", XR_ACT_EXIT);
-    draw_string(16, 304, 1, "LIBRARY", 120, 140, 160);
-
-    int row_y = 322;
+    int row_y = 84;
+    /* Five controls stay on the panel even when every library row is filled. */
+    int rows_limit = XR_MENU_H - (5 * 46) - 12;
+    if (row_count == 0) {
+        draw_string(28, row_y + 8, 1, "No computers online", 150, 165, 180);
+        row_y += 36;
+    }
     for (int i = 0; i < row_count; i++) {
         int x = 16;
         int w = XR_MENU_W - 32;
         int h = 30;
+        if (row_y + h > rows_limit) {
+            break;
+        }
         int hover = g_xr.hit_count == g_xr.menu_hover_hit;
         if (hover) {
             fill_rect(x, row_y, w, h, 24, 70, 88);
@@ -340,10 +459,21 @@ static void rebuild_menu(void) {
         draw_string(28, row_y + 11, 1, rows[i].label, 220, 228, 235);
         add_hit(x, row_y, w, h, rows[i].kind, rows[i].id);
         row_y += 32;
-        if (row_y >= XR_MENU_H - 8) {
-            break;
-        }
     }
+
+    int button_y = row_y + 10;
+    if (button_y + 5 * 46 > XR_MENU_H - 4) {
+        button_y = XR_MENU_H - 4 - 5 * 46;
+    }
+    draw_button(button_y, "Add monitor", XR_ACT_SPAWN);
+    button_y += 46;
+    draw_button(button_y, "Close monitor", XR_ACT_CLOSE);
+    button_y += 46;
+    draw_button(button_y, "Reset monitors", XR_ACT_RESET);
+    button_y += 46;
+    draw_button(button_y, "Passthrough", XR_ACT_PASSTHROUGH);
+    button_y += 46;
+    draw_button(button_y, "Exit to app", XR_ACT_EXIT);
 
     if (g_xr.menu_tex == 0) {
         glGenTextures(1, &g_xr.menu_tex);

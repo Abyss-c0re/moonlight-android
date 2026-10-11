@@ -207,34 +207,6 @@ static void xr_mvp(XrMatrix4x4f* mvp, const XrMatrix4x4f* vp, const XrPosef* pos
     XrMatrix4x4f_Multiply(mvp, vp, &model);
 }
 
-static void xr_make_placeholder(void) {
-    unsigned char pixels[64 * 64 * 4];
-    for (int y = 0; y < 64; y++) {
-        for (int x = 0; x < 64; x++) {
-            int border = x < 3 || y < 3 || x >= 61 || y >= 61;
-            unsigned char* p = pixels + (y * 64 + x) * 4;
-            if (border) {
-                p[0] = 70;
-                p[1] = 170;
-                p[2] = 190;
-            } else {
-                p[0] = (unsigned char)(12 + y / 8);
-                p[1] = (unsigned char)(16 + x / 10);
-                p[2] = 28;
-            }
-            p[3] = 255;
-        }
-    }
-    glGenTextures(1, &g_xr.placeholder_tex);
-    glBindTexture(GL_TEXTURE_2D, g_xr.placeholder_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 64, 64, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-    glBindTexture(GL_TEXTURE_2D, 0);
-}
-
 void xr_render_init(void) {
     g_xr.prog_solid = xr_program(k_solid_vert, k_solid_frag);
     g_xr.prog_tex = xr_program(k_tex_vert, k_tex_frag);
@@ -256,7 +228,7 @@ void xr_render_init(void) {
     }
     glGenVertexArrays(1, &g_xr.vao);
     glGenBuffers(1, &g_xr.vbo);
-    xr_make_placeholder();
+    xr_upload_monitor_face();
     xr_matrix_identity(g_xr.video_matrix);
     g_xr.video_ready = 0;
     glGenTextures(1, &g_xr.video_tex);
@@ -402,9 +374,9 @@ void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height)
         int grabbed = screen->grab_mask != 0;
         int hovered = (g_xr.hand_hit[0] && g_xr.hand_hover[0] == index) ||
                       (g_xr.hand_hit[1] && g_xr.hand_hover[1] == index);
-        int bezel_count = xr_panel_mesh(mesh, 32 * 6, screen->width * 1.035f, screen->height * 1.035f, screen->curve);
+        int bezel_count = xr_panel_mesh(mesh, 32 * 6, screen->width * 1.012f, screen->height * 1.012f, screen->curve);
         XrMatrix4x4f mvp;
-        xr_mvp(&mvp, &vp, &screen->pose, -0.01f);
+        xr_mvp(&mvp, &vp, &screen->pose, -0.004f);
         glUseProgram(g_xr.prog_solid);
         glUniformMatrix4fv(g_xr.loc_solid_mvp, 1, GL_FALSE, mvp.m);
         if (grabbed) {

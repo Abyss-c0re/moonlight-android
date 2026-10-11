@@ -31,7 +31,7 @@ import java.util.LinkedList;
  * System overlays pause the activity without tearing the session down.
  */
 public class VrActivity extends Activity {
-    private static final String HINT = "Grip moves  |  A/X spawns  |  menu shows this panel";
+    private static final String HINT = "Pick a PC here. Grip moves. A/X adds a monitor.";
 
     private final VrStreamHost streamHost = new VrStreamHost();
 

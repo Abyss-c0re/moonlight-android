@@ -21,6 +21,8 @@
 #define XR_ROW_CHARS 48
 #define XR_MENU_W 512
 #define XR_MENU_H 768
+#define XR_MONITOR_W 960
+#define XR_MONITOR_H 540
 #define XR_MAX_HITS 24
 
 enum {
@@ -225,6 +227,7 @@ void xr_input_sync(XrTime display_time);
 void xr_screens_init(void);
 void xr_screens_destroy(void);
 void xr_screens_update(XrTime display_time, XrDuration period);
+void xr_upload_monitor_face(void);
 
 void xr_render_init(void);
 void xr_render_destroy(void);
