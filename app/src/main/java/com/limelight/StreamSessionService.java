@@ -36,7 +36,9 @@ public class StreamSessionService extends Service {
     public static final String EXTRA_ACTIVITY = "activity";
 
     private static final int NOTIFICATION_ID = 0x4d4c01;
-    private static final String CHANNEL_ID = "moonlight_stream_keep";
+    // New id: Android will not lower an existing high-importance channel.
+    private static final String CHANNEL_ID = "moonlight_stream_quiet";
+    private static final String LEGACY_CHANNEL_ID = "moonlight_stream_keep";
     private static final int REQ_OPEN = 1;
     private static final int REQ_PAUSE = 2;
     private static final int REQ_RESUME = 3;
@@ -151,6 +153,7 @@ public class StreamSessionService extends Service {
                 .setContentText(text)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setPriority(Notification.PRIORITY_LOW)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .setContentIntent(pendingActivity())
@@ -166,6 +169,15 @@ public class StreamSessionService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         }
+        // Silent even if a device still has the old loud channel cached.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setSilent(true);
+        }
+        else {
+            builder.setSound(null);
+            builder.setVibrate(null);
+            builder.setDefaults(0);
+        }
         return builder.build();
     }
 
@@ -174,14 +186,24 @@ public class StreamSessionService extends Service {
             return;
         }
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (manager == null || manager.getNotificationChannel(CHANNEL_ID) != null) {
+        if (manager == null) {
+            return;
+        }
+        // The old channel was IMPORTANCE_HIGH: heads-up, vibration, and a sound that pauses music.
+        manager.deleteNotificationChannel(LEGACY_CHANNEL_ID);
+        if (manager.getNotificationChannel(CHANNEL_ID) != null) {
             return;
         }
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.stream_notification_channel),
-                NotificationManager.IMPORTANCE_HIGH);
+                NotificationManager.IMPORTANCE_LOW);
         channel.setDescription(getString(R.string.stream_notification_playing));
+        channel.setSound(null, null);
+        channel.enableVibration(false);
+        channel.setVibrationPattern(null);
+        channel.enableLights(false);
+        channel.setShowBadge(false);
         manager.createNotificationChannel(channel);
     }
 
