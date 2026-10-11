@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Debug builds can be started from adb. Release keeps VrActivity private. -->
+    <application>
+        <activity
+            android:name=".vr.VrActivity"
+            android:exported="true"
+            tools:replace="android:exported" />
+    </application>
+</manifest>

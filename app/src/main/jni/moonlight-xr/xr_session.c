@@ -197,7 +197,7 @@ static int xr_create_instance(void) {
     info.applicationInfo.applicationVersion = 1;
     strncpy(info.applicationInfo.engineName, "moonlight-xr", XR_MAX_ENGINE_NAME_SIZE - 1);
     info.applicationInfo.engineVersion = 1;
-    info.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    info.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     info.enabledExtensionCount = enabled_count;
     info.enabledExtensionNames = enabled;
     return xr_check(xrCreateInstance(&info, &g_xr.instance), "xrCreateInstance");
