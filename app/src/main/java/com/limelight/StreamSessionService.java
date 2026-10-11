@@ -169,15 +169,10 @@ public class StreamSessionService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         }
-        // Silent even if a device still has the old loud channel cached.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            builder.setSilent(true);
-        }
-        else {
-            builder.setSound(null);
-            builder.setVibrate(null);
-            builder.setDefaults(0);
-        }
+        // No sound and no vibration on this notice. A sound pauses other music.
+        builder.setSound(null);
+        builder.setVibrate(null);
+        builder.setDefaults(0);
         return builder.build();
     }
 
