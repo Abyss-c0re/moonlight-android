@@ -19,11 +19,16 @@
 #define XR_MAX_SCREENS 8
 #define XR_MAX_ROWS 12
 #define XR_ROW_CHARS 48
-#define XR_MENU_W 512
-#define XR_MENU_H 768
-#define XR_MONITOR_W 960
-#define XR_MONITOR_H 540
+#define XR_MENU_W 1024
+#define XR_MENU_H 1536
+#define XR_MONITOR_W 1920
+#define XR_MONITOR_H 1080
 #define XR_MAX_HITS 24
+
+typedef struct XrFontGlyph {
+    int src_x, src_y, src_w, src_h;
+    int advance, offset_x, offset_y;
+} XrFontGlyph;
 
 enum {
     XR_SCREEN_STAGE = 0,
@@ -233,6 +238,10 @@ void xr_render_init(void);
 void xr_render_destroy(void);
 void xr_render_eye(const XrView* view, int eye, uint32_t width, uint32_t height);
 void xr_video_begin_frame(void);
+
+void xr_jni_cache_text(JNIEnv* env);
+int xr_jni_load_glyph_atlas(uint8_t** pixels, int* width, int* height, int* ascent, int* font_px,
+                            XrFontGlyph* glyphs, int cap, int* count);
 
 void xr_jni_post_pick(int action, int arg);
 void xr_jni_post_pointer(int phase, float u, float v, int button);

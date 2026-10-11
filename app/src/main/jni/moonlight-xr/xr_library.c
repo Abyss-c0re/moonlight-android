@@ -1,7 +1,107 @@
 #include "xr_internal.h"
 
 #include <android/log.h>
+#include <stdlib.h>
 #include <string.h>
+
+static jclass xr_class;
+static jmethodID atlas_method;
+
+static JNIEnv* xr_env(void);
+
+void xr_jni_cache_text(JNIEnv* env) {
+    if (env == NULL || (xr_class != NULL && atlas_method != NULL)) {
+        return;
+    }
+    jclass local = (*env)->FindClass(env, "com/limelight/vr/MoonlightXr");
+    if (local == NULL) {
+        (*env)->ExceptionClear(env);
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "MoonlightXr class missing");
+        return;
+    }
+    xr_class = (*env)->NewGlobalRef(env, local);
+    (*env)->DeleteLocalRef(env, local);
+    if (xr_class == NULL) {
+        return;
+    }
+    atlas_method = (*env)->GetStaticMethodID(env, xr_class, "createGlyphAtlas", "(I)Ljava/nio/ByteBuffer;");
+    if (atlas_method == NULL) {
+        (*env)->ExceptionClear(env);
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "createGlyphAtlas missing");
+    }
+}
+
+int xr_jni_load_glyph_atlas(uint8_t** pixels, int* width, int* height, int* ascent, int* font_px,
+                            XrFontGlyph* glyphs, int cap, int* count) {
+    if (pixels == NULL || glyphs == NULL || cap <= 0) {
+        return 0;
+    }
+    *pixels = NULL;
+    *count = 0;
+    JNIEnv* env = xr_env();
+    if (env == NULL || xr_class == NULL || atlas_method == NULL) {
+        return 0;
+    }
+    jobject buffer = (*env)->CallStaticObjectMethod(env, xr_class, atlas_method, 64);
+    if ((*env)->ExceptionCheck(env) || buffer == NULL) {
+        (*env)->ExceptionClear(env);
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "createGlyphAtlas failed");
+        return 0;
+    }
+    void* address = (*env)->GetDirectBufferAddress(env, buffer);
+    jlong capacity = (*env)->GetDirectBufferCapacity(env, buffer);
+    if (address == NULL || capacity < 8 * (jlong)sizeof(int32_t)) {
+        (*env)->DeleteLocalRef(env, buffer);
+        return 0;
+    }
+    const int32_t* header = (const int32_t*)address;
+    int atlas_w = header[0];
+    int atlas_h = header[1];
+    int glyph_count = header[2];
+    int atlas_ascent = header[3];
+    int atlas_px = header[4];
+    if (atlas_w < 2 || atlas_h < 2 || atlas_w > 4096 || atlas_h > 4096 || glyph_count < 1 || glyph_count > cap ||
+        atlas_px < 8 || atlas_ascent < 1) {
+        (*env)->DeleteLocalRef(env, buffer);
+        return 0;
+    }
+    jlong header_bytes = (jlong)(8 + glyph_count * 8) * (jlong)sizeof(int32_t);
+    jlong pixel_bytes = (jlong)atlas_w * (jlong)atlas_h * 4;
+    if (header_bytes + pixel_bytes > capacity) {
+        (*env)->DeleteLocalRef(env, buffer);
+        return 0;
+    }
+    const int32_t* records = header + 8;
+    for (int i = 0; i < glyph_count; i++) {
+        const int32_t* rec = records + i * 8;
+        glyphs[i].src_x = rec[0];
+        glyphs[i].src_y = rec[1];
+        glyphs[i].src_w = rec[2];
+        glyphs[i].src_h = rec[3];
+        glyphs[i].advance = rec[4];
+        glyphs[i].offset_x = rec[5];
+        glyphs[i].offset_y = rec[6];
+        if (glyphs[i].src_w < 0 || glyphs[i].src_h < 0 || glyphs[i].src_x < 0 || glyphs[i].src_y < 0 ||
+            glyphs[i].src_x + glyphs[i].src_w > atlas_w || glyphs[i].src_y + glyphs[i].src_h > atlas_h) {
+            glyphs[i].src_w = 0;
+            glyphs[i].src_h = 0;
+        }
+    }
+    uint8_t* copy = (uint8_t*)malloc((size_t)pixel_bytes);
+    if (copy == NULL) {
+        (*env)->DeleteLocalRef(env, buffer);
+        return 0;
+    }
+    memcpy(copy, (const uint8_t*)address + header_bytes, (size_t)pixel_bytes);
+    (*env)->DeleteLocalRef(env, buffer);
+    *pixels = copy;
+    *width = atlas_w;
+    *height = atlas_h;
+    *ascent = atlas_ascent;
+    *font_px = atlas_px;
+    *count = glyph_count;
+    return 1;
+}
 
 static JNIEnv* xr_env(void) {
     JNIEnv* env = NULL;

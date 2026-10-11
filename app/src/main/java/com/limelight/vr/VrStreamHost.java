@@ -255,8 +255,20 @@ final class VrStreamHost {
         int width = prefs.width > 0 ? prefs.width : 1280;
         int height = prefs.height > 0 ? prefs.height : 720;
         int fps = prefs.fps > 0 ? prefs.fps : 60;
+        int bitrate = prefs.bitrate;
+        /* The flat app still defaults to 720p. A monitor that fills the Neo 3
+         * view needs at least 1080p or the desktop looks soft. */
+        if (width < 1920 || height < 1080) {
+            width = 1920;
+            height = 1080;
+            int floor = PreferenceConfiguration.getDefaultBitrate("1920x1080", Integer.toString(fps));
+            if (bitrate < floor) {
+                bitrate = floor;
+            }
+        }
         width = Math.min(width, Short.MAX_VALUE);
         height = Math.min(height, Short.MAX_VALUE);
+        LimeLog.info("VR stream " + width + "x" + height + " @" + fps + " " + bitrate + "kbps");
         texture.setDefaultBufferSize(width, height);
         target.setBufferSize(width, height);
 
@@ -304,7 +316,7 @@ final class VrStreamHost {
                 .setLaunchRefreshRate(fps)
                 .setRefreshRate(fps)
                 .setApp(launched)
-                .setBitrate(prefs.bitrate)
+                .setBitrate(bitrate)
                 .setEnableSops(prefs.enableSops)
                 .enableLocalAudioPlayback(prefs.playHostAudio)
                 .setMaxPacketSize(1392)

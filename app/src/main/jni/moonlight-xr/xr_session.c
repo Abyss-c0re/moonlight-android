@@ -469,14 +469,37 @@ static int xr_create_swapchains(void) {
         info.format = format;
         /* Sample count 1 keeps the swapchain image a plain GL_TEXTURE_2D. */
         info.sampleCount = 1;
-        info.width = view->recommendedImageRectWidth;
-        info.height = view->recommendedImageRectHeight;
+        /* recommendedImageRect is Pico's power-saving size (Neo 3 default
+         * 1440x1584). The panel is maxImageRect, 1832x1920. */
+        uint32_t want_w = view->maxImageRectWidth;
+        uint32_t want_h = view->maxImageRectHeight;
+        if (want_w < view->recommendedImageRectWidth) {
+            want_w = view->recommendedImageRectWidth;
+        }
+        if (want_h < view->recommendedImageRectHeight) {
+            want_h = view->recommendedImageRectHeight;
+        }
+        info.width = want_w;
+        info.height = want_h;
         info.faceCount = 1;
         info.arraySize = 1;
         info.mipCount = 1;
-        if (!xr_check(xrCreateSwapchain(g_xr.session, &info, &g_xr.swapchain[eye]), "xrCreateSwapchain")) {
+        g_xr.swapchain[eye] = XR_NULL_HANDLE;
+        XrResult created = xrCreateSwapchain(g_xr.session, &info, &g_xr.swapchain[eye]);
+        if (XR_FAILED(created) &&
+            (want_w != view->recommendedImageRectWidth || want_h != view->recommendedImageRectHeight)) {
+            info.width = view->recommendedImageRectWidth;
+            info.height = view->recommendedImageRectHeight;
+            created = xrCreateSwapchain(g_xr.session, &info, &g_xr.swapchain[eye]);
+        }
+        if (XR_FAILED(created)) {
+            xr_log_result(created, "xrCreateSwapchain");
             return 0;
         }
+        __android_log_print(ANDROID_LOG_INFO, "moonlight-xr",
+                            "eye %u swapchain %ux%u recommended %ux%u max %ux%u", eye, info.width, info.height,
+                            view->recommendedImageRectWidth, view->recommendedImageRectHeight,
+                            view->maxImageRectWidth, view->maxImageRectHeight);
         g_xr.swap_w[eye] = info.width;
         g_xr.swap_h[eye] = info.height;
 

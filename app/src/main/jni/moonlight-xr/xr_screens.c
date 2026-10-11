@@ -226,8 +226,165 @@ static void fill_rect(int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t 
     }
 }
 
-static int text_width(const char* text, int scale) {
+static uint8_t* font_pixels;
+static int font_w;
+static int font_h;
+static int font_ascent;
+static int font_px;
+static int font_count;
+static int font_ready;
+static int font_tried;
+static XrFontGlyph font_glyphs[96];
+
+static void xr_text_init(void) {
+    if (font_ready || font_tried) {
+        return;
+    }
+    font_tried = 1;
+    uint8_t* pixels = NULL;
+    int width = 0;
+    int height = 0;
+    int ascent = 0;
+    int px = 0;
     int count = 0;
+    if (!xr_jni_load_glyph_atlas(&pixels, &width, &height, &ascent, &px, font_glyphs, 96, &count)) {
+        __android_log_print(ANDROID_LOG_WARN, "moonlight-xr", "system font unavailable; using bitmap font");
+        return;
+    }
+    font_pixels = pixels;
+    font_w = width;
+    font_h = height;
+    font_ascent = ascent;
+    font_px = px;
+    font_count = count;
+    font_ready = 1;
+    __android_log_print(ANDROID_LOG_INFO, "moonlight-xr", "system font %dpx atlas %dx%d glyphs %d", px, width, height,
+                        count);
+}
+
+static const XrFontGlyph* font_glyph(unsigned char code) {
+    int value = code < 128 ? (int)code : (int)'?';
+    if (value < 32 || value > 126) {
+        value = (int)'?';
+    }
+    int index = value - 32;
+    if (index < 0 || index >= font_count) {
+        return NULL;
+    }
+    return &font_glyphs[index];
+}
+
+static int atlas_alpha(float u, float v) {
+    if (font_pixels == NULL || font_w < 2 || font_h < 2) {
+        return 0;
+    }
+    if (u < 0.0f) {
+        u = 0.0f;
+    }
+    if (v < 0.0f) {
+        v = 0.0f;
+    }
+    float max_u = (float)font_w - 1.01f;
+    float max_v = (float)font_h - 1.01f;
+    if (u > max_u) {
+        u = max_u;
+    }
+    if (v > max_v) {
+        v = max_v;
+    }
+    int x = (int)u;
+    int y = (int)v;
+    float fx = u - (float)x;
+    float fy = v - (float)y;
+    const uint8_t* row = font_pixels + (y * font_w + x) * 4;
+    int a00 = row[3];
+    int a10 = row[7];
+    int a01 = row[font_w * 4 + 3];
+    int a11 = row[font_w * 4 + 7];
+    float top = (1.0f - fx) * (float)a00 + fx * (float)a10;
+    float bottom = (1.0f - fx) * (float)a01 + fx * (float)a11;
+    return (int)((1.0f - fy) * top + fy * bottom);
+}
+
+static void blend_px(uint8_t* pixels, int stride, int limit_w, int limit_h, int x, int y, int r, int g, int b, int a) {
+    if ((unsigned)x >= (unsigned)limit_w || (unsigned)y >= (unsigned)limit_h || a <= 0) {
+        return;
+    }
+    uint8_t* pixel = pixels + (y * stride + x) * 4;
+    if (a >= 255) {
+        pixel[0] = (uint8_t)r;
+        pixel[1] = (uint8_t)g;
+        pixel[2] = (uint8_t)b;
+        pixel[3] = 255;
+        return;
+    }
+    pixel[0] = (uint8_t)((r * a + pixel[0] * (255 - a) + 127) / 255);
+    pixel[1] = (uint8_t)((g * a + pixel[1] * (255 - a) + 127) / 255);
+    pixel[2] = (uint8_t)((b * a + pixel[2] * (255 - a) + 127) / 255);
+    pixel[3] = 255;
+}
+
+static int paint_width(const char* text, int px) {
+    if (!font_ready || text == NULL || font_px < 1) {
+        return 0;
+    }
+    float scale = (float)px / (float)font_px;
+    float width = 0.0f;
+    for (const unsigned char* glyph = (const unsigned char*)text; *glyph != 0; glyph++) {
+        const XrFontGlyph* info = font_glyph(*glyph);
+        if (info != NULL) {
+            width += (float)info->advance * scale;
+        }
+    }
+    return (int)(width + 0.5f);
+}
+
+static void paint_string(uint8_t* pixels, int stride, int limit_w, int limit_h, int x, int y, int px, const char* text,
+                         uint8_t r, uint8_t g, uint8_t b) {
+    if (!font_ready || pixels == NULL || text == NULL || px < 1 || font_px < 1) {
+        return;
+    }
+    float scale = (float)px / (float)font_px;
+    float baseline = (float)y + (float)font_ascent * scale;
+    float pen = (float)x;
+    for (const unsigned char* glyph = (const unsigned char*)text; *glyph != 0; glyph++) {
+        const XrFontGlyph* info = font_glyph(*glyph);
+        if (info == NULL) {
+            continue;
+        }
+        if (info->src_w > 0 && info->src_h > 0 && scale > 0.0f) {
+            float dx = pen + (float)info->offset_x * scale;
+            float dy = baseline + (float)info->offset_y * scale;
+            float dw = (float)info->src_w * scale;
+            float dh = (float)info->src_h * scale;
+            int x0 = (int)floorf(dx);
+            int y0 = (int)floorf(dy);
+            int x1 = (int)ceilf(dx + dw);
+            int y1 = (int)ceilf(dy + dh);
+            for (int py = y0; py < y1; py++) {
+                for (int px_i = x0; px_i < x1; px_i++) {
+                    float u = (((float)px_i + 0.5f) - dx) / scale + (float)info->src_x;
+                    float v = (((float)py + 0.5f) - dy) / scale + (float)info->src_y;
+                    blend_px(pixels, stride, limit_w, limit_h, px_i, py, r, g, b, atlas_alpha(u, v));
+                }
+            }
+        }
+        pen += (float)info->advance * scale;
+        if (pen >= (float)limit_w) {
+            break;
+        }
+    }
+}
+
+static int text_width(const char* text, int px) {
+    if (font_ready) {
+        return paint_width(text, px);
+    }
+    int count = 0;
+    int scale = px / 8;
+    if (scale < 1) {
+        scale = 1;
+    }
     if (text != NULL) {
         while (text[count] != '\0') {
             count++;
@@ -236,9 +393,17 @@ static int text_width(const char* text, int scale) {
     return count * 8 * scale;
 }
 
-static void draw_string(int x, int y, int scale, const char* text, uint8_t r, uint8_t g, uint8_t b) {
-    if (text == NULL || scale < 1) {
+static void draw_string(int x, int y, int px, const char* text, uint8_t r, uint8_t g, uint8_t b) {
+    if (text == NULL || px < 1) {
         return;
+    }
+    if (font_ready) {
+        paint_string(g_xr.menu_pixels, XR_MENU_W, XR_MENU_W, XR_MENU_H, x, y, px, text, r, g, b);
+        return;
+    }
+    int scale = px / 8;
+    if (scale < 1) {
+        scale = 1;
     }
     int cursor = x;
     for (const unsigned char* glyph = (const unsigned char*)text; *glyph != 0; glyph++) {
@@ -319,9 +484,17 @@ static void face_px(uint8_t* pixels, int stride, int x, int y, uint8_t r, uint8_
     pixel[3] = 255;
 }
 
-static void face_string(uint8_t* pixels, int x, int y, int scale, const char* text, uint8_t r, uint8_t g, uint8_t b) {
-    if (text == NULL || scale < 1) {
+static void face_string(uint8_t* pixels, int x, int y, int px, const char* text, uint8_t r, uint8_t g, uint8_t b) {
+    if (text == NULL || px < 1) {
         return;
+    }
+    if (font_ready) {
+        paint_string(pixels, XR_MONITOR_W, XR_MONITOR_W, XR_MONITOR_H, x, y, px, text, r, g, b);
+        return;
+    }
+    int scale = px / 8;
+    if (scale < 1) {
+        scale = 1;
     }
     int cursor = x;
     for (const unsigned char* glyph = (const unsigned char*)text; *glyph != 0; glyph++) {
@@ -348,64 +521,93 @@ static void face_string(uint8_t* pixels, int x, int y, int scale, const char* te
     }
 }
 
-static void face_centered(uint8_t* pixels, int y, int scale, const char* text, uint8_t r, uint8_t g, uint8_t b) {
-    int width = text_width(text, scale);
-    face_string(pixels, (XR_MONITOR_W - width) / 2, y, scale, text, r, g, b);
+static void face_centered(uint8_t* pixels, int y, int px, const char* text, uint8_t r, uint8_t g, uint8_t b) {
+    int width = text_width(text, px);
+    face_string(pixels, (XR_MONITOR_W - width) / 2, y, px, text, r, g, b);
 }
 
-void xr_upload_monitor_face(void) {
-    const int width = XR_MONITOR_W;
-    const int height = XR_MONITOR_H;
-    uint8_t* pixels = (uint8_t*)calloc((size_t)width * (size_t)height * 4u, 1u);
-    if (pixels == NULL) {
-        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "monitor face allocation failed");
+static int ui_aniso(void) {
+    static int checked;
+    static int supported;
+    if (checked) {
+        return supported;
+    }
+    checked = 1;
+    GLint count = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+    for (GLint i = 0; i < count; i++) {
+        const char* name = (const char*)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+        if (name != NULL && strcmp(name, "GL_EXT_texture_filter_anisotropic") == 0) {
+            supported = 1;
+            break;
+        }
+    }
+    return supported;
+}
+
+static void upload_ui_texture(GLuint* tex, const uint8_t* pixels, int width, int height) {
+    if (*tex == 0) {
+        glGenTextures(1, tex);
+    }
+    if (*tex == 0) {
         return;
     }
-    face_fill(pixels, width, 0, 0, width, height, 36, 40, 48);
-    face_fill(pixels, width, 6, 6, width - 12, height - 12, 12, 16, 24);
-    face_fill(pixels, width, 6, 6, width - 12, 2, 58, 68, 82);
-
-    face_centered(pixels, 186, 5, "YOUR MONITOR", 226, 234, 242);
-    face_centered(pixels, 254, 3, "The PC stream shows on this screen.", 176, 190, 204);
-    face_centered(pixels, 296, 3, "Pick a computer on the menu.", 176, 190, 204);
-    face_centered(pixels, 338, 3, "Grip moves it. A or X adds another.", 176, 190, 204);
-
-    if (g_xr.placeholder_tex != 0) {
-        glDeleteTextures(1, &g_xr.placeholder_tex);
-        g_xr.placeholder_tex = 0;
-    }
-    glGenTextures(1, &g_xr.placeholder_tex);
-    if (g_xr.placeholder_tex == 0) {
-        free(pixels);
-        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "monitor face texture failed");
-        return;
-    }
-    glBindTexture(GL_TEXTURE_2D, g_xr.placeholder_tex);
+    glBindTexture(GL_TEXTURE_2D, *tex);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    if (ui_aniso()) {
+        glTexParameterf(GL_TEXTURE_2D, 0x84FE, 8.0f);
+    }
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void xr_upload_monitor_face(void) {
+    const int width = XR_MONITOR_W;
+    const int height = XR_MONITOR_H;
+    xr_text_init();
+    uint8_t* pixels = (uint8_t*)calloc((size_t)width * (size_t)height * 4u, 1u);
+    if (pixels == NULL) {
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "monitor face allocation failed");
+        return;
+    }
+    face_fill(pixels, width, 0, 0, width, height, 36, 40, 48);
+    face_fill(pixels, width, 8, 8, width - 16, height - 16, 12, 16, 24);
+    face_fill(pixels, width, 8, 8, width - 16, 3, 58, 68, 82);
+
+    face_centered(pixels, 390, 84, "YOUR MONITOR", 226, 234, 242);
+    face_centered(pixels, 510, 48, "The PC stream shows on this screen.", 176, 190, 204);
+    face_centered(pixels, 576, 48, "Pick a computer on the menu.", 176, 190, 204);
+    face_centered(pixels, 642, 48, "Grip moves it. A or X adds another.", 176, 190, 204);
+
+    upload_ui_texture(&g_xr.placeholder_tex, pixels, width, height);
     free(pixels);
+    if (g_xr.placeholder_tex == 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "moonlight-xr", "monitor face texture failed");
+        return;
+    }
     __android_log_print(ANDROID_LOG_INFO, "moonlight-xr", "monitor face %dx%d", width, height);
 }
 
 static void draw_button(int y, const char* label, int action) {
-    int x = 16;
-    int w = XR_MENU_W - 32;
-    int h = 44;
+    int x = 32;
+    int w = XR_MENU_W - 64;
+    int h = 92;
     int hover = g_xr.hit_count == g_xr.menu_hover_hit;
     if (hover) {
         fill_rect(x, y, w, h, 30, 90, 110);
     } else {
         fill_rect(x, y, w, h, 28, 36, 48);
     }
-    fill_rect(x, y, w, 2, 70, 150, 170);
-    int width = text_width(label, 2);
-    draw_string(x + (w - width) / 2, y + 14, 2, label, 230, 240, 245);
+    fill_rect(x, y, w, 4, 70, 150, 170);
+    int width = text_width(label, 36);
+    draw_string(x + (w - width) / 2, y + 28, 36, label, 230, 240, 245);
     add_hit(x, y, w, h, action, 0);
 }
 
@@ -429,24 +631,25 @@ static void rebuild_menu(void) {
     g_xr.menu_dirty = 0;
     pthread_mutex_unlock(&g_xr.lib_mu);
 
+    xr_text_init();
     fill_rect(0, 0, XR_MENU_W, XR_MENU_H, 12, 14, 20);
     g_xr.hit_count = 0;
-    int title_w = text_width("MOONLIGHT VR", 2);
-    draw_string((XR_MENU_W - title_w) / 2, 14, 2, "MOONLIGHT VR", 220, 230, 240);
-    draw_string(16, 44, 1, status, 150, 165, 180);
-    draw_string(16, 64, 1, "Point at a computer, then an app.", 120, 140, 160);
+    int title_w = text_width("MOONLIGHT VR", 44);
+    draw_string((XR_MENU_W - title_w) / 2, 28, 44, "MOONLIGHT VR", 220, 230, 240);
+    draw_string(32, 88, 28, status, 150, 165, 180);
+    draw_string(32, 128, 28, "Point at a computer, then an app.", 120, 140, 160);
 
-    int row_y = 84;
+    int row_y = 176;
     /* Five controls stay on the panel even when every library row is filled. */
-    int rows_limit = XR_MENU_H - (5 * 46) - 12;
+    int rows_limit = XR_MENU_H - (5 * 96) - 16;
     if (row_count == 0) {
-        draw_string(28, row_y + 8, 1, "No computers online", 150, 165, 180);
-        row_y += 36;
+        draw_string(56, row_y + 16, 30, "No computers online", 150, 165, 180);
+        row_y += 72;
     }
     for (int i = 0; i < row_count; i++) {
-        int x = 16;
-        int w = XR_MENU_W - 32;
-        int h = 30;
+        int x = 32;
+        int w = XR_MENU_W - 64;
+        int h = 64;
         if (row_y + h > rows_limit) {
             break;
         }
@@ -456,40 +659,26 @@ static void rebuild_menu(void) {
         } else {
             fill_rect(x, row_y, w, h, 20, 24, 32);
         }
-        draw_string(28, row_y + 11, 1, rows[i].label, 220, 228, 235);
+        draw_string(56, row_y + 16, 32, rows[i].label, 220, 228, 235);
         add_hit(x, row_y, w, h, rows[i].kind, rows[i].id);
-        row_y += 32;
+        row_y += 68;
     }
 
-    int button_y = row_y + 10;
-    if (button_y + 5 * 46 > XR_MENU_H - 4) {
-        button_y = XR_MENU_H - 4 - 5 * 46;
+    int button_y = row_y + 16;
+    if (button_y + 5 * 96 > XR_MENU_H - 8) {
+        button_y = XR_MENU_H - 8 - 5 * 96;
     }
     draw_button(button_y, "Add monitor", XR_ACT_SPAWN);
-    button_y += 46;
+    button_y += 96;
     draw_button(button_y, "Close monitor", XR_ACT_CLOSE);
-    button_y += 46;
+    button_y += 96;
     draw_button(button_y, "Reset monitors", XR_ACT_RESET);
-    button_y += 46;
+    button_y += 96;
     draw_button(button_y, "Passthrough", XR_ACT_PASSTHROUGH);
-    button_y += 46;
+    button_y += 96;
     draw_button(button_y, "Exit to app", XR_ACT_EXIT);
 
-    if (g_xr.menu_tex == 0) {
-        glGenTextures(1, &g_xr.menu_tex);
-    }
-    if (g_xr.menu_tex == 0) {
-        return;
-    }
-    glBindTexture(GL_TEXTURE_2D, g_xr.menu_tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, XR_MENU_W, XR_MENU_H, 0, GL_RGBA, GL_UNSIGNED_BYTE, g_xr.menu_pixels);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    upload_ui_texture(&g_xr.menu_tex, g_xr.menu_pixels, XR_MENU_W, XR_MENU_H);
 }
 
 static void locate_head(XrTime time) {
@@ -869,6 +1058,10 @@ void xr_screens_init(void) {
 }
 
 void xr_screens_destroy(void) {
+    free(font_pixels);
+    font_pixels = NULL;
+    font_ready = 0;
+    font_tried = 0;
     free(g_xr.menu_pixels);
     g_xr.menu_pixels = NULL;
     if (g_xr.menu_tex != 0) {

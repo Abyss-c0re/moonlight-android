@@ -23,6 +23,7 @@ Java_com_limelight_vr_MoonlightXr_nativeStart(JNIEnv* env, jclass clazz, jobject
         return JNI_FALSE;
     }
 
+    xr_jni_cache_text(env);
     g_xr.activity = (*env)->NewGlobalRef(env, activity);
     jclass activity_class = (*env)->GetObjectClass(env, activity);
     g_xr.on_session_ended = (*env)->GetMethodID(env, activity_class, "onSessionEnded", "(Ljava/lang/String;)V");
