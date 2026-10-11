@@ -27,6 +27,7 @@ import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
+import com.limelight.vr.VrActivity;
 
 import android.app.Activity;
 import android.app.ActivityManager;
@@ -49,6 +50,7 @@ import android.view.View.OnClickListener;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
+import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
@@ -159,6 +161,13 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
             @Override
             public void onClick(View v) {
                 HelpLauncher.launchSetupGuide(PcView.this);
+            }
+        });
+        Button enterVrButton = findViewById(R.id.enterVr);
+        enterVrButton.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(PcView.this, VrActivity.class));
             }
         });
 

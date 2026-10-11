@@ -73,6 +73,17 @@
         android:preferKeepClear="true"
         style="?android:attr/borderlessButtonStyle"/>
     
+    <Button
+        android:id="@+id/enterVr"
+        android:layout_width="70dp"
+        android:layout_height="65dp"
+        android:layout_alignParentTop="true"
+        android:layout_toStartOf="@id/manuallyAddPc"
+        android:layout_toLeftOf="@id/manuallyAddPc"
+        android:text="@string/vr_enter"
+        android:preferKeepClear="true"
+        style="?android:attr/borderlessButtonStyle"/>
+
     <ImageButton
         android:id="@+id/manuallyAddPc"
         android:layout_width="70dp"

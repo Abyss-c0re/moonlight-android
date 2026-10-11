@@ -25,9 +25,9 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 
 /**
- * OpenXR activity. The PC list does not start this yet; a later change adds
- * the button. Inside the headset the menu lists paired PCs and their apps.
- * Choosing an app names it on the panel until streaming is connected.
+ * OpenXR activity started from the PC-list VR button. Inside the headset the
+ * menu lists paired PCs and their apps. Choosing an app names it on the panel
+ * until streaming is connected.
  * System overlays pause the activity without tearing the session down.
  * Back, and Exit to app, return to the 2D app.
  */
