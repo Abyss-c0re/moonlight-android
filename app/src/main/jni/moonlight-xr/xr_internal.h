@@ -182,6 +182,10 @@ typedef struct XrApp {
     int pointer_hand;
     int pointer_button;
     int pointer_screen;
+    int hover_hand;
+    int hover_screen;
+    int hover_qx;
+    int hover_qy;
     XrTime last_scroll_time;
 
     XrRow rows[XR_MAX_ROWS];

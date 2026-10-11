@@ -913,6 +913,56 @@ static int gripping(int hand) {
     return g_xr.squeeze_held[hand];
 }
 
+/* Stage and clones are the desktop. The menu is not a mouse surface. */
+static int stream_screen(int index) {
+    if (index < 0 || index >= XR_MAX_SCREENS) {
+        return 0;
+    }
+    XrScreen* screen = &g_xr.screens[index];
+    return screen->alive && screen->visible && screen->kind != XR_SCREEN_MENU && screen->grab_mask == 0;
+}
+
+/* Absolute mouse, sent on the XR thread. Moonlight keeps only the latest
+ * position, so a still laser does not need a packet every frame. 8192 covers
+ * a 4K stream with less than one pixel of slack. */
+static void update_hover_pointer(void) {
+    if (g_xr.pointer_down) {
+        g_xr.hover_hand = -1;
+        return;
+    }
+    int hand = -1;
+    int previous = g_xr.hover_hand;
+    if (previous >= 0 && previous < 2 && !gripping(previous) && g_xr.hand_hit[previous] &&
+        stream_screen(g_xr.hand_hover[previous])) {
+        hand = previous;
+    } else {
+        for (int i = 0; i < 2; i++) {
+            if (gripping(i) || !g_xr.hand_hit[i] || !stream_screen(g_xr.hand_hover[i])) {
+                continue;
+            }
+            hand = i;
+            break;
+        }
+    }
+    g_xr.hover_hand = hand;
+    if (hand < 0) {
+        g_xr.hover_screen = -1;
+        return;
+    }
+    float u = g_xr.hand_u[hand];
+    float v = g_xr.hand_v[hand];
+    int screen = g_xr.hand_hover[hand];
+    int qx = (int)lrintf(u * 8192.0f);
+    int qy = (int)lrintf(v * 8192.0f);
+    if (screen == g_xr.hover_screen && qx == g_xr.hover_qx && qy == g_xr.hover_qy) {
+        return;
+    }
+    g_xr.hover_screen = screen;
+    g_xr.hover_qx = qx;
+    g_xr.hover_qy = qy;
+    xr_jni_post_pointer(XR_PTR_MOVE, u, v, 0);
+}
+
 static void update_pointer(XrTime time) {
     int started_hand = -1;
     for (int hand = 0; hand < 2; hand++) {
@@ -965,6 +1015,8 @@ static void update_pointer(XrTime time) {
             xr_jni_post_pointer(XR_PTR_MOVE, g_xr.hand_u[hand], g_xr.hand_v[hand], g_xr.pointer_button);
         }
     }
+
+    update_hover_pointer();
 
     for (int hand = 0; hand < 2; hand++) {
         if (g_xr.pointer_down || gripping(hand) || !g_xr.hand_hit[hand]) {
@@ -1043,6 +1095,10 @@ void xr_screens_init(void) {
     g_xr.pointer_hand = -1;
     g_xr.pointer_button = 0;
     g_xr.pointer_screen = -1;
+    g_xr.hover_hand = -1;
+    g_xr.hover_screen = -1;
+    g_xr.hover_qx = -1;
+    g_xr.hover_qy = -1;
     g_xr.last_scroll_time = 0;
     g_xr.hand_hit[0] = g_xr.hand_hit[1] = 0;
     g_xr.hand_hover[0] = g_xr.hand_hover[1] = -1;
@@ -1087,9 +1143,10 @@ void xr_screens_update(XrTime display_time, XrDuration period) {
     }
     raycast_all();
     update_grabs(dt);
-    update_pointer(display_time);
     update_buttons();
     raycast_all();
+    /* The second aim is the one the laser draws, so the host cursor matches it. */
+    update_pointer(display_time);
     if (g_xr.menu_dirty) {
         rebuild_menu();
     }
